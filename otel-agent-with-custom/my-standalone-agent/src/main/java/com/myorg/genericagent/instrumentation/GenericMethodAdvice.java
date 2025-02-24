@@ -7,7 +7,7 @@ import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.Context;
 import net.bytebuddy.asm.Advice;
 
-import java.util.logging.Logger;
+//import java.util.logging.Logger;
 import java.util.Arrays;
 
 /**
@@ -16,7 +16,7 @@ import java.util.Arrays;
  */
 public class GenericMethodAdvice {
 
-    private static final Logger logger = Logger.getLogger(GenericMethodAdvice.class.getName());
+   // private static final Logger logger = Logger.getLogger(GenericMethodAdvice.class.getName());
 
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void onEnter(
@@ -37,13 +37,14 @@ public class GenericMethodAdvice {
 
         // Log
         Span finalSpan = span;
-        logger.info(() -> String.format(
-                "[GenericMethodAdvice] ENTER: %s => traceId=%s, spanId=%s, args=%s",
-                methodName,
-                finalSpan.getSpanContext().getTraceId(),
-                finalSpan.getSpanContext().getSpanId(),
-                Arrays.toString(args)
-        ));
+//        logger.info(() -> String.format(
+//                "[GenericMethodAdvice] ENTER: %s => traceId=%s, spanId=%s, args=%s",
+//                methodName,
+//                finalSpan.getSpanContext().getTraceId(),
+//                finalSpan.getSpanContext().getSpanId(),
+//                Arrays.toString(args)
+//        ));
+        System.out.println("[GenericMethodAdvice] ENTER:" + methodName + "-->" + finalSpan.getSpanContext().getTraceId() + finalSpan.getSpanContext().getSpanId());
     }
 
     @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
@@ -61,10 +62,10 @@ public class GenericMethodAdvice {
         // close the scope
         scope.close();
 
-        logger.info(() -> String.format(
-                "[GenericMethodAdvice] EXIT => traceId=%s, spanId=%s",
-                span.getSpanContext().getTraceId(),
+        System.out.println(
+                "[GenericMethodAdvice] EXIT => traceId=%s, spanId=%s" +
+                span.getSpanContext().getTraceId() +
                 span.getSpanContext().getSpanId()
-        ));
+        );
     }
 }

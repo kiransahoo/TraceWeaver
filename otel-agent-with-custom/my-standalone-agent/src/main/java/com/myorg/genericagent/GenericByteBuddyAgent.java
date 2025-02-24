@@ -34,7 +34,7 @@ import io.opentelemetry.sdk.trace.samplers.Sampler;
 import java.lang.instrument.Instrumentation;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Logger;
+//import java.util.logging.Logger;
 
 /**
  * GenericByteBuddyAgent that:
@@ -43,7 +43,7 @@ import java.util.logging.Logger;
  * - Installs ByteBuddy instrumentation
  */
 public class GenericByteBuddyAgent {
-    private static final Logger logger = Logger.getLogger(GenericByteBuddyAgent.class.getName());
+   // private static final Logger logger = Logger.getLogger(GenericByteBuddyAgent.class.getName());
 
     public static void premain(String agentArgs, Instrumentation inst) {
         // read config
@@ -51,17 +51,22 @@ public class GenericByteBuddyAgent {
         List<String> includes = ConfigReader.getMethodIncludes();
         List<String> excludes = ConfigReader.getMethodExcludes();
 
-        logger.info(() -> String.format(
-                "[GenericByteBuddyAgent] Packages=%s, includeMethods=%s, excludeMethods=%s",
-                packages, includes, excludes
-        ));
+//        logger.info(() -> String.format(
+//                "[GenericByteBuddyAgent] Packages=%s, includeMethods=%s, excludeMethods=%s",
+//                packages, includes, excludes
+//        ));
 
+
+        System.out.println("[GenericByteBuddyAgent] Packages=" + packages
+                + ", includeMethods=" + includes
+                + ", excludeMethods=" + excludes);
         setupOpenTelemetry();  // sets GlobalOpenTelemetry
 
         // install ByteBuddy instrumentation
         GenericMethodAdvisor.install(inst, packages, includes, excludes);
 
-        logger.info("[GenericByteBuddyAgent] Agent installed. ByteBuddy + OTel instrumentation active.");
+       // logger.info("[GenericByteBuddyAgent] Agent installed. ByteBuddy + OTel instrumentation active.");
+        System.out.println("[GenericByteBuddyAgent] Agent installed. ByteBuddy + OTel instrumentation active.");
     }
 
     private static void setupOpenTelemetry() {
@@ -108,7 +113,7 @@ public class GenericByteBuddyAgent {
 
         // 9) optional graceful shutdown
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            logger.info("[GenericByteBuddyAgent] Shutdown -> closing tracerProvider & meterProvider");
+            System.out.println("[GenericByteBuddyAgent] Shutdown -> closing tracerProvider & meterProvider");
             tracerProvider.shutdown();
             meterProvider.shutdown();
         }));
@@ -116,18 +121,18 @@ public class GenericByteBuddyAgent {
         // 10) Start system metrics
         SystemMetrics.registerGauges();
 
-        logger.info("[GenericByteBuddyAgent] OTel setup done with config-based exporter, processor, sampler.");
+        System.out.println("[GenericByteBuddyAgent] OTel setup done with config-based exporter, processor, sampler.");
     }
 
     private static SpanExporter buildExporterFromConfig() {
         String exporterType = ConfigReader.getExporterType(); // "jaeger" or "azure"
-        logger.info("[GenericByteBuddyAgent] exporter.type=" + exporterType);
+        System.out.println("[GenericByteBuddyAgent] exporter.type=" + exporterType);
 
         switch (exporterType.toLowerCase()) {
             case "azure":
                 String connStr = ConfigReader.getAzureConnectionString();
                 if (connStr == null || connStr.isEmpty()) {
-                    logger.warning("Azure connection string not set! Falling back to Jaeger default.");
+                    System.out.println("Azure connection string not set! Falling back to Jaeger default.");
                     return buildJaegerExporter();
                 }
                 return buildAzureExporter(connStr);
@@ -140,7 +145,7 @@ public class GenericByteBuddyAgent {
 
     private static SpanExporter buildJaegerExporter() {
         String endpoint = ConfigReader.getJaegerEndpoint(); // default http://localhost:14250
-        logger.info("[GenericByteBuddyAgent] Using Jaeger Exporter endpoint=" + endpoint);
+        System.out.println("[GenericByteBuddyAgent] Using Jaeger Exporter endpoint=" + endpoint);
 
         return JaegerGrpcSpanExporter.builder()
                 .setEndpoint(endpoint)
@@ -153,7 +158,7 @@ public class GenericByteBuddyAgent {
      * If on a newer version (like 1.0.0-beta.12), you might need AzureMonitorExporterBuilder.
      */
     private static SpanExporter buildAzureExporter(String connStr) {
-        logger.info("[GenericByteBuddyAgent] Using AzureMonitorTraceExporter, connStr=" + connStr);
+        System.out.println("[GenericByteBuddyAgent] Using AzureMonitorTraceExporter, connStr=" + connStr);
 
         // If on beta.5
 //        return new AzureMonitorTraceExporterBuilder()
@@ -173,7 +178,7 @@ public class GenericByteBuddyAgent {
 
     private static SpanProcessor buildSpanProcessorFromConfig(SpanExporter exporter) {
         String processorType = ConfigReader.getSpanProcessorType(); // "batch" or "simple"
-        logger.info("[GenericByteBuddyAgent] span.processor=" + processorType);
+        System.out.println("[GenericByteBuddyAgent] span.processor=" + processorType);
 
         if ("simple".equalsIgnoreCase(processorType)) {
             return SimpleSpanProcessor.create(exporter);
@@ -184,7 +189,7 @@ public class GenericByteBuddyAgent {
 
     private static Sampler buildSamplerFromConfig() {
         double ratio = ConfigReader.getSamplerRatio(); // default = 1.0
-        logger.info("[GenericByteBuddyAgent] sampler.ratio=" + ratio);
+        System.out.println("[GenericByteBuddyAgent] sampler.ratio=" + ratio);
 
         // Instead of referencing TraceIdRatioBasedSampler directly,
         // use the stable approach in OTel 1.28.0:

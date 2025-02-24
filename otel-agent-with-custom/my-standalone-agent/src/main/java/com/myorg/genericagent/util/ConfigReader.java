@@ -2,7 +2,7 @@ package com.myorg.genericagent.util;
 
 import java.io.InputStream;
 import java.util.*;
-import java.util.logging.Logger;
+//import java.util.logging.Logger;
 
 /**
  * Reads "my-agent-config.properties" from resources (or environment),
@@ -17,7 +17,7 @@ import java.util.logging.Logger;
  * Falls back to env vars if not in the resource file.
  */
 public class ConfigReader {
-    private static final Logger logger = Logger.getLogger(ConfigReader.class.getName());
+  //  private static final Logger logger = Logger.getLogger(ConfigReader.class.getName());
 
     private static final String RESOURCE_PATH = "/my-agent-config.properties";
 
@@ -51,15 +51,15 @@ public class ConfigReader {
         Properties prop = new Properties();
         try (InputStream in = ConfigReader.class.getResourceAsStream(RESOURCE_PATH)) {
             if (in == null) {
-                logger.warning("Resource not found: " + RESOURCE_PATH +
+                System.out.println("Resource not found: " + RESOURCE_PATH +
                         " (check if it's in src/main/resources). " +
                         "Falling back to env/defaults.");
             } else {
                 prop.load(in);
-                logger.info("Loaded properties from resource: " + RESOURCE_PATH);
+                System.out.println("Loaded properties from resource: " + RESOURCE_PATH);
             }
         } catch (Exception e) {
-            logger.warning("Error reading resource " + RESOURCE_PATH + ": " + e.getMessage());
+            System.out.println("Error reading resource " + RESOURCE_PATH + ": " + e.getMessage());
         }
         return prop;
     }
@@ -115,7 +115,7 @@ public class ConfigReader {
             try {
                 return Double.parseDouble(val);
             } catch (NumberFormatException e) {
-                logger.warning("Invalid sampler.ratio: " + val + ", using default=1.0");
+                System.out.println("Invalid sampler.ratio: " + val + ", using default=1.0");
             }
         }
         return 1.0;

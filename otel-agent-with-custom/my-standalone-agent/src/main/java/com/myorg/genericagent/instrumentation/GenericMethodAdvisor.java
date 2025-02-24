@@ -7,7 +7,7 @@ import net.bytebuddy.matcher.ElementMatcher;
 
 import java.lang.instrument.Instrumentation;
 import java.util.List;
-import java.util.logging.Logger;
+//import java.util.logging.Logger;
 
 import static net.bytebuddy.matcher.ElementMatchers.*;
 
@@ -24,7 +24,7 @@ import static net.bytebuddy.matcher.ElementMatchers.*;
  */
 public class GenericMethodAdvisor {
 
-    private static final Logger logger = Logger.getLogger(GenericMethodAdvisor.class.getName());
+   // private static final Logger logger = Logger.getLogger(GenericMethodAdvisor.class.getName());
 
     public static void install(
             Instrumentation inst,
@@ -32,7 +32,7 @@ public class GenericMethodAdvisor {
             List<String> includeMethodPatterns,
             List<String> excludeMethodPatterns
     ) {
-        logger.info(() ->
+       System.out.println(
                 String.format("[GenericMethodAdvisor] Installing with packages=%s, includeMethods=%s, excludeMethods=%s",
                         packagePrefixes, includeMethodPatterns, excludeMethodPatterns)
         );
