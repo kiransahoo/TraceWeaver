@@ -21,28 +21,40 @@ import static net.bytebuddy.matcher.ElementMatchers.*;
  *
  * By default, we use 'named(...)' for includes, but 'nameContains(...)' for excludes
  * so partial matches for 'randomMath' are excluded if the method has that substring.
+ *
+ * @author kiransahoo
  */
 public class GenericMethodAdvisor {
 
-   // private static final Logger logger = Logger.getLogger(GenericMethodAdvisor.class.getName());
-
     public static void install(
             Instrumentation inst,
-            List<String> packagePrefixes,
+            List<String> packagePrefixes,      // packages to instrument
             List<String> includeMethodPatterns,
             List<String> excludeMethodPatterns
     ) {
-       System.out.println(
-                String.format("[GenericMethodAdvisor] Installing with packages=%s, includeMethods=%s, excludeMethods=%s",
-                        packagePrefixes, includeMethodPatterns, excludeMethodPatterns)
-        );
+        // Also read the excludePackages from ConfigReader
+        List<String> excludePackages = com.myorg.genericagent.util.ConfigReader.getPackageExcludes();
+
+        System.out.println(String.format(
+                "[GenericMethodAdvisor] Installing with packages=%s, excludePackages=%s, includeMethods=%s, excludeMethods=%s",
+                packagePrefixes, excludePackages, includeMethodPatterns, excludeMethodPatterns
+        ));
 
         AgentBuilder agentBuilder = new AgentBuilder.Default();
 
-        // For each package prefix, transform the matching classes
+        // For each *included* package prefix, transform matching classes
         for (String prefix : packagePrefixes) {
+            // We'll build a type matcher that:
+            // (nameStartsWith(prefix)) AND (NOT nameStartsWith(any excludePackage))
+            ElementMatcher.Junction typeMatcher = nameStartsWith(prefix);
+
+            // Exclude any packages in "excludePackages"
+            for (String exPkg : excludePackages) {
+                typeMatcher = typeMatcher.and(not(nameStartsWith(exPkg)));
+            }
+
             agentBuilder = agentBuilder
-                    .type(nameStartsWith(prefix))
+                    .type(typeMatcher)
                     .transform((builder, typeDescription, classLoader, module, protectionDomain) -> {
 
                         // 1) Build an ElementMatcher for included methods
@@ -52,16 +64,13 @@ public class GenericMethodAdvisor {
                             includeMatcher = any();
                         } else {
                             // OR all included patterns using 'named(...)'
-                            // (exact match of method names)
                             includeMatcher = none();
                             for (String inc : includeMethodPatterns) {
                                 includeMatcher = includeMatcher.or(named(inc));
                             }
                         }
 
-                        // 2) Build an ElementMatcher for excluded methods
-                        //    We'll use 'nameContains(...)' so that any method containing
-                        //    "randomMath" is excluded, for example.
+                        // 2) Build an ElementMatcher for excluded methods using 'nameContains(...)'
                         ElementMatcher.Junction<MethodDescription> excludeMatcher = none();
                         if (excludeMethodPatterns != null && !excludeMethodPatterns.isEmpty()) {
                             for (String exc : excludeMethodPatterns) {
@@ -73,14 +82,14 @@ public class GenericMethodAdvisor {
                         ElementMatcher.Junction<MethodDescription> finalMatcher =
                                 includeMatcher.and(not(excludeMatcher));
 
-                        // 4) Intercept the final matcher with your ByteBuddy Advice
+                        // 4) Intercept the final matcher with ByteBuddy Advice
                         return builder
                                 .method(finalMatcher)
                                 .intercept(Advice.to(GenericMethodAdvice.class));
                     });
         }
 
-        // install everything on the instrumentation
+        // Finally, install everything on the instrumentation
         agentBuilder.installOn(inst);
     }
 }
