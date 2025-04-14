@@ -1,5 +1,4 @@
-package com.myorg.genericagent.util;
-
+package com.tracer.genericagent.util;
 import java.io.InputStream;
 import java.util.*;
 
@@ -13,6 +12,10 @@ import java.util.*;
  *   5) azure.connectionString
  *   6) span.processor (batch|simple)
  *   7) sampler.ratio (0..1)
+ *   8) azure.sdk.version (sdk|direct)
+ *   9) azure.retry.count
+ *   10) azure.buffer.size
+ * @author kiransahoo
  */
 public class ConfigReader {
 
@@ -29,8 +32,15 @@ public class ConfigReader {
     private static final String KEY_METHODS_INCLUDE = "instrument.includeMethods";
     private static final String KEY_METHODS_EXCLUDE = "instrument.excludeMethods";
 
-    // **NEW** key for excluding packages
+    // Key for excluding packages
     private static final String KEY_PACKAGES_EXCLUDE = "instrument.excludePackages";
+    // Key for strict mode (only instrument *.myorg.*)
+    private static final String KEY_STRICT_MODE = "instrument.strictMode";
+
+    // New Azure specific configuration keys
+    public static final String KEY_AZURE_SDK_VERSION = "azure.sdk.version";
+    public static final String KEY_RETRY_COUNT = "azure.retry.count";
+    public static final String KEY_BUFFER_SIZE = "azure.buffer.size";
 
     // Env variable fallbacks
     private static final String ENV_EXPORTER = "OTEL_EXPORTER";
@@ -42,8 +52,13 @@ public class ConfigReader {
     private static final String ENV_PACKAGES = "INSTRUMENT_PACKAGES";
     private static final String ENV_METHODS_INCLUDE = "INSTRUMENT_INCLUDE_METHODS";
     private static final String ENV_METHODS_EXCLUDE = "INSTRUMENT_EXCLUDE_METHODS";
-    // **NEW** env var for exclude packages
     private static final String ENV_PACKAGES_EXCLUDE = "INSTRUMENT_EXCLUDE_PACKAGES";
+    private static final String ENV_STRICT_MODE = "INSTRUMENT_STRICT_MODE";
+
+    // New Azure specific environment variables
+    public static final String ENV_AZURE_SDK_VERSION = "AZURE_SDK_VERSION";
+    public static final String ENV_RETRY_COUNT = "AZURE_RETRY_COUNT";
+    public static final String ENV_BUFFER_SIZE = "AZURE_BUFFER_SIZE";
 
     private static final Properties PROPS = loadPropsFromResource();
 
@@ -74,6 +89,71 @@ public class ConfigReader {
             return envVal;
         }
         return "";
+    }
+
+    /**
+     * Generic property getter that returns a default value if not found
+     * @param key The property key
+     * @param defaultValue The default value to return if not found
+     * @return The property value or default
+     */
+    public static String getProperty(String key, String defaultValue) {
+        String value = PROPS.getProperty(key);
+        if (value != null && !value.isEmpty()) {
+            return value;
+        }
+        return defaultValue;
+    }
+
+    /**
+     * Gets the Azure SDK version to use
+     * 'sdk' - Use the Azure Monitor SDK (default)
+     * 'direct' - Use direct HTTP posting (more reliable)
+     */
+    public static String getAzureSdkVersion() {
+        String val = getPropOrEnv(KEY_AZURE_SDK_VERSION, ENV_AZURE_SDK_VERSION);
+        return val.isEmpty() ? "sdk" : val.toLowerCase();
+    }
+
+    /**
+     * Gets the retry count for failed exports
+     */
+    public static int getAzureRetryCount() {
+        String val = getPropOrEnv(KEY_RETRY_COUNT, ENV_RETRY_COUNT);
+        if (!val.isEmpty()) {
+            try {
+                return Integer.parseInt(val);
+            } catch (NumberFormatException e) {
+                System.out.println("Invalid azure.retry.count: " + val + ", using default=3");
+            }
+        }
+        return 3;
+    }
+
+    /**
+     * Gets the buffer size for batch exporting
+     */
+    public static int getAzureBufferSize() {
+        String val = getPropOrEnv(KEY_BUFFER_SIZE, ENV_BUFFER_SIZE);
+        if (!val.isEmpty()) {
+            try {
+                return Integer.parseInt(val);
+            } catch (NumberFormatException e) {
+                System.out.println("Invalid azure.buffer.size: " + val + ", using default=100");
+            }
+        }
+        return 100;
+    }
+
+    /**
+     * Returns true if strict mode is enabled (default: true).
+     * In strict mode, only packages that match exactly the patterns in getPackagePrefixes()
+     * will be instrumented, and all others will be excluded.
+     */
+    public static boolean isStrictMode() {
+        String val = getPropOrEnv(KEY_STRICT_MODE, ENV_STRICT_MODE);
+        // Default to true for safety
+        return val.isEmpty() || Boolean.parseBoolean(val);
     }
 
     // Exporter type (jaeger|azure), default = "jaeger"
@@ -123,7 +203,7 @@ public class ConfigReader {
         if (!raw.isEmpty()) {
             return Arrays.asList(raw.split(","));
         }
-        // default
+        // default - only instrument com.myorg
         return Collections.singletonList("com.myorg");
     }
 
@@ -143,12 +223,72 @@ public class ConfigReader {
         return Collections.emptyList();
     }
 
-    // **NEW** packages to exclude
+    /**
+     * Returns packages to exclude from instrumentation.
+     * Always excludes critical system packages to avoid classloading issues.
+     */
     public static List<String> getPackageExcludes() {
+        List<String> excludes = new ArrayList<>();
+
+        // Always exclude these system/framework packages
+        // JDK classes
+        excludes.add("java.");
+        excludes.add("javax.");
+        excludes.add("sun.");
+        excludes.add("com.sun.");
+        excludes.add("jdk.");
+
+        // Logging frameworks
+        excludes.add("org.jboss.logmanager");
+        excludes.add("org.slf4j");
+        excludes.add("org.apache.log4j");
+        excludes.add("ch.qos.logback");
+        excludes.add("org.apache.logging");
+
+        // Web frameworks
+        excludes.add("org.apache.cxf");
+        excludes.add("org.springframework");
+        excludes.add("org.glassfish");
+        excludes.add("jakarta.");
+
+        // Application servers
+        excludes.add("org.jboss.");
+        excludes.add("org.apache.tomcat");
+        excludes.add("org.eclipse.jetty");
+        excludes.add("io.undertow");
+
+        // Databases and persistence
+        excludes.add("org.hibernate");
+        excludes.add("com.mysql");
+        excludes.add("oracle.");
+        excludes.add("com.zaxxer.hikari");
+
+        // Utility libraries
+        excludes.add("com.google.");
+        excludes.add("org.apache.commons");
+        excludes.add("org.yaml");
+        excludes.add("com.fasterxml.jackson");
+
+        // Instrumentation and monitoring libraries
+        excludes.add("io.opentelemetry");
+        excludes.add("io.micrometer");
+        excludes.add("net.bytebuddy");
+
+        // Cloud libraries
+        excludes.add("com.azure.");
+        excludes.add("com.amazonaws");
+        excludes.add("io.vertx");
+
+        // Add user-configured exclusions
         String raw = getPropOrEnv(KEY_PACKAGES_EXCLUDE, ENV_PACKAGES_EXCLUDE);
         if (!raw.isEmpty()) {
-            return Arrays.asList(raw.split(","));
+            excludes.addAll(Arrays.asList(raw.split(",")));
         }
-        return Collections.emptyList();
+
+        // Important: if in strict mode, we'll only be instrumenting exact
+        // packages in getPackagePrefixes(), but we still want to keep these exclusions
+        // as an extra safety measure
+
+        return excludes;
     }
 }

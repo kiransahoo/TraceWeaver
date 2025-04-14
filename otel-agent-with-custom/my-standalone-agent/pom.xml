@@ -13,10 +13,10 @@
     <relativePath>../pom.xml</relativePath>
   </parent>
 
-  <artifactId>my-standalone-agent</artifactId>
+  <artifactId>trace-standalone-agent</artifactId>
   <packaging>jar</packaging>
   <version>1.0.0</version>
-  <name>my-standalone-agent</name>
+  <name>trace-standalone-agent</name>
 
   <properties>
     <otel.version>1.28.0</otel.version>
@@ -43,6 +43,7 @@
       <artifactId>byte-buddy</artifactId>
       <version>${bytebuddy.version}</version>
     </dependency>
+
     <dependency>
       <groupId>net.bytebuddy</groupId>
       <artifactId>byte-buddy-agent</artifactId>
@@ -133,7 +134,7 @@
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                   <manifestEntries>
-                    <Premain-Class>com.myorg.genericagent.GenericByteBuddyAgent</Premain-Class>
+                    <Premain-Class>com.tracer.genericagent.GenericByteBuddyAgent</Premain-Class>
                   </manifestEntries>
                 </transformer>
 
