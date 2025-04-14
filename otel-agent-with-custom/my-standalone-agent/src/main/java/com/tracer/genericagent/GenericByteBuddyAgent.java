@@ -752,11 +752,20 @@ public class GenericByteBuddyAgent {
         Duration duration = Duration.ofNanos(span.getEndEpochNanos() - span.getStartEpochNanos());
 
         // Format duration as App Insights expects: "00:00:00.123"
+//        String formattedDuration = String.format("%02d:%02d:%02d.%03d",
+//                duration.toHoursPart(),
+//                duration.toMinutesPart(),
+//                duration.toSecondsPart(),
+//                duration.toMillisPart());
+
+        long totalSeconds = duration.getSeconds();
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+        int millis = duration.getNano() / 1_000_000;
+
         String formattedDuration = String.format("%02d:%02d:%02d.%03d",
-                duration.toHoursPart(),
-                duration.toMinutesPart(),
-                duration.toSecondsPart(),
-                duration.toMillisPart());
+                hours, minutes, seconds, millis);
 
         if (isRequest) {
             return String.format(
