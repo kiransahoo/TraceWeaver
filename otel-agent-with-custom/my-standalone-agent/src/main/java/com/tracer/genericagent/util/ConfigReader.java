@@ -133,6 +133,8 @@ public class ConfigReader {
         return props;
     }
 
+
+
     /**
      * Load properties from a file path
      */
@@ -216,6 +218,10 @@ public class ConfigReader {
             }
         }
         return 3;
+    }
+
+    public static long getMinSpanDurationMs() {
+        return Long.parseLong(getPropOrEnv("span.min.duration.ms", "10")); // Default 10ms
     }
 
     /**

@@ -72,7 +72,7 @@ public class SimplifiedGenericMethodAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void onEnter(@Advice.Origin("#t.#m") String methodName) {
         try {
-            System.out.println("[DEBUG] ENTER intercepted: " + methodName);
+            //System.out.println("[DEBUG] ENTER intercepted: " + methodName);
 
             // Split method name into class and method parts
             String className = methodName.substring(0, methodName.lastIndexOf('.'));
@@ -104,41 +104,61 @@ public class SimplifiedGenericMethodAdvice {
             }
 
             // Start the span
+//            Span span = spanBuilder
+//                    // Azure Application Insights specific attributes
+//                    .setAttribute("ai.operation.id", operationId)
+//                    .setAttribute("ai.operation.name", methodName)
+//                    .setAttribute("ai.cloud.role", SERVICE_NAME)
+//                    .setAttribute("ai.cloud.roleInstance", INSTANCE_ID)
+//                    .setAttribute("ai.application.ver", APP_VERSION)
+//                    .setAttribute("ai.operation.parentId", parentSpan.getSpanContext().isValid() ?
+//                            parentSpan.getSpanContext().getSpanId() : "")
+//
+//                    // Microsoft-specific AI attributes
+//                    .setAttribute("ms.operation.id", operationId)
+//                    .setAttribute("ms.operation.name", methodName)
+//
+//                    // Standard OpenTelemetry attributes
+//                    .setAttribute("operation.name", methodName)
+//                    .setAttribute("operation.id", operationId)
+//                    .setAttribute("service.name", SERVICE_NAME)
+//                    .setAttribute("service.namespace", SERVICE_NAMESPACE)
+//                    .setAttribute("service.instance.id", INSTANCE_ID)
+//                    .setAttribute("service.version", APP_VERSION)
+//                    .setAttribute("deployment.environment", ENVIRONMENT)
+//
+//                    // Code specific attributes
+//                    .setAttribute("code.namespace", className)
+//                    .setAttribute("code.function", methodNameOnly)
+//                    .setAttribute("component", "generic-agent")
+//
+//                    // Telemetry SDK info
+//                    .setAttribute("telemetry.sdk.name", "opentelemetry")
+//                    .setAttribute("telemetry.sdk.language", "java")
+//                    .setAttribute("telemetry.sdk.version", "1.28.0")
+//
+//                    .startSpan();
+
             Span span = spanBuilder
-                    // Azure Application Insights specific attributes
+                    // Essential Azure Application Insights attributes
                     .setAttribute("ai.operation.id", operationId)
                     .setAttribute("ai.operation.name", methodName)
                     .setAttribute("ai.cloud.role", SERVICE_NAME)
-                    .setAttribute("ai.cloud.roleInstance", INSTANCE_ID)
-                    .setAttribute("ai.application.ver", APP_VERSION)
                     .setAttribute("ai.operation.parentId", parentSpan.getSpanContext().isValid() ?
                             parentSpan.getSpanContext().getSpanId() : "")
 
-                    // Microsoft-specific AI attributes
-                    .setAttribute("ms.operation.id", operationId)
-                    .setAttribute("ms.operation.name", methodName)
-
-                    // Standard OpenTelemetry attributes
-                    .setAttribute("operation.name", methodName)
-                    .setAttribute("operation.id", operationId)
+                    // Essential service identification (keep only one set)
                     .setAttribute("service.name", SERVICE_NAME)
-                    .setAttribute("service.namespace", SERVICE_NAMESPACE)
-                    .setAttribute("service.instance.id", INSTANCE_ID)
-                    .setAttribute("service.version", APP_VERSION)
-                    .setAttribute("deployment.environment", ENVIRONMENT)
 
-                    // Code specific attributes
+                    // Method identification (essential for debugging)
                     .setAttribute("code.namespace", className)
                     .setAttribute("code.function", methodNameOnly)
-                    .setAttribute("component", "generic-agent")
 
-                    // Telemetry SDK info
-                    .setAttribute("telemetry.sdk.name", "opentelemetry")
-                    .setAttribute("telemetry.sdk.language", "java")
-                    .setAttribute("telemetry.sdk.version", "1.28.0")
+                    // Add traceId explicitly as an attribute for easy filtering
 
                     .startSpan();
 
+           span .setAttribute("trace.id", span.getSpanContext().getTraceId());
             // Make the new span current
             Scope scope = span.makeCurrent();
 

@@ -79,6 +79,8 @@ public class TraceFilteringSpanProcessor implements SpanProcessor {
         // Always delegate onStart
         delegate.onStart(parentContext, span);
 
+
+
         // Get trace ID and current time
         SpanContext spanContext = span.getSpanContext();
         String traceId = spanContext.getTraceId();
