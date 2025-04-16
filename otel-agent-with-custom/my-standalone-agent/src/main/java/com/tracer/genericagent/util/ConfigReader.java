@@ -1,25 +1,28 @@
 package com.tracer.genericagent.util;
-import java.io.InputStream;
+import java.io.*;
 import java.util.*;
 
 /**
- * Reads "my-agent-config.properties" from resources (or environment),
- * providing config for:
- *   1) instrumentation (packages, includes, excludes)
- *   2) now also: instrument.excludePackages
- *   3) exporter.type (jaeger|azure)
- *   4) jaeger.endpoint
- *   5) azure.connectionString
- *   6) span.processor (batch|simple)
- *   7) sampler.ratio (0..1)
- *   8) azure.sdk.version (sdk|direct)
- *   9) azure.retry.count
- *   10) azure.buffer.size
+ * Configuration reader that loads from multiple sources in order of priority:
+ * 1. External file specified by system property "tracer.config.path"
+ * 2. Standard locations (/etc/tracer/agent-config.properties, ./agent-config.properties)
+ * 3. Environment variables
+ * 4. Built-in resource "/my-agent-config.properties"
+ * 5. Default values
  * @author kiransahoo
  */
 public class ConfigReader {
 
     private static final String RESOURCE_PATH = "/my-agent-config.properties";
+    private static final String[] STANDARD_CONFIG_PATHS = {
+            "./agent-config.properties",                      // Current directory
+            System.getProperty("user.home") + "/.tracer/agent-config.properties", // User home dir
+            "/etc/tracer/agent-config.properties",             // System-wide config
+            "/opt/app/config/agent-config.properties"          // Docker-friendly location
+    };
+
+    // System property that can specify external config location
+    private static final String CONFIG_PATH_PROPERTY = "tracer.config.path";
 
     // Existing keys
     public static final String KEY_EXPORTER_TYPE = "exporter.type";
@@ -37,7 +40,7 @@ public class ConfigReader {
     // Key for strict mode (only instrument *.myorg.*)
     private static final String KEY_STRICT_MODE = "instrument.strictMode";
 
-    // New Azure specific configuration keys
+    //  Azure specific configuration keys
     public static final String KEY_AZURE_SDK_VERSION = "azure.sdk.version";
     public static final String KEY_RETRY_COUNT = "azure.retry.count";
     public static final String KEY_BUFFER_SIZE = "azure.buffer.size";
@@ -55,40 +58,123 @@ public class ConfigReader {
     private static final String ENV_PACKAGES_EXCLUDE = "INSTRUMENT_EXCLUDE_PACKAGES";
     private static final String ENV_STRICT_MODE = "INSTRUMENT_STRICT_MODE";
 
-    // New Azure specific environment variables
+    //  Azure specific environment variables
     public static final String ENV_AZURE_SDK_VERSION = "AZURE_SDK_VERSION";
     public static final String ENV_RETRY_COUNT = "AZURE_RETRY_COUNT";
     public static final String ENV_BUFFER_SIZE = "AZURE_BUFFER_SIZE";
 
-    private static final Properties PROPS = loadPropsFromResource();
+    //  SLA-related configuration keys
+    private static final String KEY_SLA_ENABLED = "sla.enabled";
+    private static final String KEY_SLA_THRESHOLD_MS = "sla.threshold.ms";
+    private static final String KEY_SLA_ALWAYS_CAPTURE_EXCEPTIONS = "sla.captureExceptions";
 
-    private static Properties loadPropsFromResource() {
-        Properties prop = new Properties();
+    // Environment variable fallbacks
+    private static final String ENV_SLA_ENABLED = "TRACE_SLA_ENABLED";
+    private static final String ENV_SLA_THRESHOLD_MS = "TRACE_SLA_THRESHOLD_MS";
+    private static final String ENV_SLA_CAPTURE_EXCEPTIONS = "TRACE_CAPTURE_EXCEPTIONS";
+
+
+    // Properties object holding the merged configuration
+    private static final Properties PROPS = loadConfiguration();
+
+    // Tracks which config source was used (for diagnostics)
+    private static String configSource = "defaults";
+    private static final String AGENT_CONFIG_FILE_PROPERTY = "agent.config.file";
+
+    /**
+     * Load configuration from all possible sources in priority order
+     */
+    private static Properties loadConfiguration() {
+        Properties props = new Properties();
+
+        // Try to load from external file specified by agent.config.file property (add this block)
+        String agentConfigPath = System.getProperty(AGENT_CONFIG_FILE_PROPERTY);
+        if (agentConfigPath != null && !agentConfigPath.isEmpty()) {
+            if (loadPropsFromFile(props, agentConfigPath)) {
+                configSource = "system property: " + agentConfigPath;
+                System.out.println("[ConfigReader] Loaded configuration from " + agentConfigPath);
+                return props;
+            }
+        }
+        // Try to load from external file specified by system property
+        String configPath = System.getProperty(CONFIG_PATH_PROPERTY);
+        if (configPath != null && !configPath.isEmpty()) {
+            if (loadPropsFromFile(props, configPath)) {
+                configSource = "system property: " + configPath;
+                System.out.println("[ConfigReader] Loaded configuration from " + configPath);
+                return props;
+            }
+        }
+
+        // Try standard config locations
+        for (String path : STANDARD_CONFIG_PATHS) {
+            if (loadPropsFromFile(props, path)) {
+                configSource = "standard location: " + path;
+                System.out.println("[ConfigReader] Loaded configuration from " + path);
+                return props;
+            }
+        }
+
+        // Fall back to resource file
         try (InputStream in = ConfigReader.class.getResourceAsStream(RESOURCE_PATH)) {
-            if (in == null) {
-                System.out.println("Resource not found: " + RESOURCE_PATH +
-                        " (check if it's in src/main/resources). " +
-                        "Falling back to env/defaults.");
-            } else {
-                prop.load(in);
-                System.out.println("Loaded properties from resource: " + RESOURCE_PATH);
+            if (in != null) {
+                props.load(in);
+                configSource = "built-in resource: " + RESOURCE_PATH;
+                System.out.println("[ConfigReader] Loaded configuration from built-in resource");
+                return props;
             }
         } catch (Exception e) {
-            System.out.println("Error reading resource " + RESOURCE_PATH + ": " + e.getMessage());
+            System.out.println("[ConfigReader] Error reading resource: " + e.getMessage());
         }
-        return prop;
+
+        // No config file found - we'll rely on environment variables and defaults
+        configSource = "environment variables and defaults";
+        System.out.println("[ConfigReader] No configuration file found, using environment variables and defaults");
+        return props;
     }
 
+    /**
+     * Load properties from a file path
+     */
+    private static boolean loadPropsFromFile(Properties props, String path) {
+        try {
+            File file = new File(path);
+            if (file.exists() && file.canRead()) {
+                try (FileInputStream fis = new FileInputStream(file)) {
+                    props.load(fis);
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("[ConfigReader] Error reading " + path + ": " + e.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * Get property from loaded properties or environment
+     */
     private static String getPropOrEnv(String key, String envKey) {
+        // First check properties
         String val = PROPS.getProperty(key, "");
         if (!val.isEmpty()) {
             return val;
         }
+
+        // Then check environment
         String envVal = System.getenv(envKey);
         if (envVal != null && !envVal.isEmpty()) {
             return envVal;
         }
+
         return "";
+    }
+
+    /**
+     * Returns the configuration source that was used
+     */
+    public static String getConfigSource() {
+        return configSource;
     }
 
     /**
@@ -104,6 +190,8 @@ public class ConfigReader {
         }
         return defaultValue;
     }
+
+    // The rest of the class remains the same with all the getters...
 
     /**
      * Gets the Azure SDK version to use
@@ -285,10 +373,55 @@ public class ConfigReader {
             excludes.addAll(Arrays.asList(raw.split(",")));
         }
 
-        // Important: if in strict mode, we'll only be instrumenting exact
-        // packages in getPackagePrefixes(), but we still want to keep these exclusions
-        // as an extra safety measure
-
         return excludes;
+    }
+
+    /**
+     * Check if SLA-based filtering is enabled
+     */
+    public static boolean isSlaEnabled() {
+        String val = getPropOrEnv(KEY_SLA_ENABLED, ENV_SLA_ENABLED);
+        return val.isEmpty() ? false : Boolean.parseBoolean(val);
+    }
+
+
+
+    /**
+     * Check if exceptions should always be captured, regardless of duration
+     */
+    public static boolean shouldCaptureExceptions() {
+        String val = getPropOrEnv(KEY_SLA_ALWAYS_CAPTURE_EXCEPTIONS, ENV_SLA_CAPTURE_EXCEPTIONS);
+        return val.isEmpty() ? true : Boolean.parseBoolean(val);
+    }
+
+    /**
+     * Check if SLA-based filtering is enabled
+     */
+    public static boolean isSlaFilteringEnabled() {
+        String val = getPropOrEnv("sla.filter.enabled", "TRACE_SLA_FILTER_ENABLED");
+        return val.isEmpty() ? false : Boolean.parseBoolean(val);
+    }
+
+    /**
+     * Get the SLA threshold in milliseconds
+     */
+    public static long getSlaThresholdMs() {
+        String val = getPropOrEnv("sla.threshold.ms", "TRACE_SLA_THRESHOLD_MS");
+        if (!val.isEmpty()) {
+            try {
+                return Long.parseLong(val);
+            } catch (NumberFormatException e) {
+                System.out.println("Invalid sla.threshold.ms: " + val + ", using default=500");
+            }
+        }
+        return 500; // Default 500ms
+    }
+
+    /**
+     * Check if exception-based filtering is enabled
+     */
+    public static boolean isExceptionFilteringEnabled() {
+        String val = getPropOrEnv("exception.filter.enabled", "TRACE_EXCEPTION_FILTER_ENABLED");
+        return val.isEmpty() ? true : Boolean.parseBoolean(val);
     }
 }

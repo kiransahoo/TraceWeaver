@@ -3,9 +3,14 @@ package com.tracer.genericagent;
 import com.azure.monitor.opentelemetry.exporter.AzureMonitorExporterBuilder;
 import com.tracer.genericagent.instrumentation.EnhancedGenericMethodAdvisor;
 import com.tracer.genericagent.instrumentation.SystemMetrics;
+import com.tracer.genericagent.instrumentation.TraceFilteringSpanProcessor;
 import com.tracer.genericagent.util.ConfigReader;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanBuilder;
+import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.propagation.ContextPropagators;
 
@@ -84,13 +89,13 @@ public class GenericByteBuddyAgent {
                 if (!connectionValid) {
                     System.err.println("\n=========================================================");
                     System.err.println("⚠️  WARNING: Azure connection validation FAILED");
-                    System.err.println("    Data may not be appearing in your Application Insights");
-                    System.err.println("    Check your instrumentation key and network connectivity");
+                    System.err.println("    Data may not be appearing in  Application Insights");
+                    System.err.println("    Check  instrumentation key and network connectivity");
                     System.err.println("=========================================================\n");
                 } else {
                     System.out.println("\n=========================================================");
                     System.out.println("✅ Azure connection validation SUCCESSFUL");
-                    System.out.println("   Data should appear in your Application Insights shortly");
+                    System.out.println("   Data should appear in  Application Insights shortly");
                     System.out.println("=========================================================\n");
                 }
             }
@@ -194,7 +199,7 @@ public class GenericByteBuddyAgent {
             if (success) {
                 System.out.println("[VALIDATION] Connection test successful - Azure endpoint is reachable");
                 System.out.println("[VALIDATION] Test event ID: " + testEventId);
-                System.out.println("[VALIDATION] Look for this event in your Application Insights logs");
+                System.out.println("[VALIDATION] Look for this event in  Application Insights logs");
             } else {
                 System.err.println("[VALIDATION] Connection test FAILED - HTTP " + responseCode);
                 System.err.println("[VALIDATION] This may indicate an invalid instrumentation key or network issue");
@@ -247,66 +252,123 @@ public class GenericByteBuddyAgent {
     }
 
     private static void setupOpenTelemetry() {
-        // 1) Resource
-        Resource resource = Resource.builder()
-                .put("service.name", "GenericByteBuddyAgentService")
-                .put("library.name", "generic-agent")
-                .put("library.version", "1.0.0")
-                .build();
+        try {
+            // 1) Resource
+            Resource resource = Resource.builder()
+                    .put("service.name", "GenericByteBuddyAgentService")
+                    .put("library.name", "generic-agent")
+                    .put("library.version", "1.0.0")
+                    .build();
 
-        // 2) Build the SpanExporter (Jaeger or Azure) based on config
-        SpanExporter exporter = buildExporterFromConfig();
+            // 2) Build the SpanExporter (Jaeger or Azure) based on config
+            SpanExporter exporter = buildExporterFromConfig();
 
-        // 3) Build the SpanProcessor (batch or simple)
-        SpanProcessor spanProcessor = buildSpanProcessorFromConfig(exporter);
+            // 3) Build the SpanProcessor (batch or simple)
+            SpanProcessor spanProcessor = buildSpanProcessorFromConfig(exporter);
 
-        // 4) Build a Sampler
-        Sampler sampler = buildSamplerFromConfig();
+            // 4) Build a Sampler
+            Sampler sampler = buildSamplerFromConfig();
 
-        // 5) Create SdkTracerProvider
-        SdkTracerProvider tracerProvider = SdkTracerProvider.builder()
-                .setResource(resource)
-                .setSampler(sampler)  // if there's a parent, we respect parent's decision
-                .addSpanProcessor(spanProcessor)
-                .build();
+            // 5) Create SdkTracerProvider
+            SdkTracerProvider tracerProvider = SdkTracerProvider.builder()
+                    .setResource(resource)
+                    .setSampler(sampler)
+                    .addSpanProcessor(spanProcessor)
+                    .build();
 
-        // 6) Meter provider for system metrics
+            SdkMeterProvider meterProvider = SdkMeterProvider.builder()
+                    .setResource(resource)
+                    .build();
+
+            // 7) Build and register OpenTelemetrySdk using the recommended approach
+            // This handles the global registration properly
+            OpenTelemetrySdk sdk = OpenTelemetrySdk.builder()
+                    .setTracerProvider(tracerProvider)
+                    .setMeterProvider(meterProvider)
+                    .setPropagators(ContextPropagators.create(W3CTraceContextPropagator.getInstance()))
+                    .buildAndRegisterGlobal(); // This replaces the separate build() and set() calls
+
+            // 9) optional graceful shutdown
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                System.out.println("[GenericByteBuddyAgent] Shutdown -> closing tracerProvider & meterProvider");
+                spanProcessor.forceFlush().join(5, TimeUnit.SECONDS);
+                tracerProvider.shutdown();
+                meterProvider.shutdown();
+            }));
+
+            System.out.println("[GenericByteBuddyAgent] OTel setup done with config-based exporter, processor, sampler.");
+
+        } catch (IllegalStateException e) {
+            // This will happen if another agent already registered the SDK
+            System.out.println("[GenericByteBuddyAgent] OpenTelemetry SDK already registered by another agent");
+            System.out.println("[GenericByteBuddyAgent] Using existing OpenTelemetry configuration");
+        }
+
+        // 10) Start system metrics regardless of who set up the SDK
+        SystemMetrics.registerGauges();
+    }
+
+//    private static void setupOpenTelemetry() {
+//        // 1) Resource
+//        Resource resource = Resource.builder()
+//                .put("service.name", "GenericByteBuddyAgentService")
+//                .put("library.name", "generic-agent")
+//                .put("library.version", "1.0.0")
+//                .build();
+//
+//        // 2) Build the SpanExporter (Jaeger or Azure) based on config
+//        SpanExporter exporter = buildExporterFromConfig();
+//
+//        // 3) Build the SpanProcessor (batch or simple)
+//        SpanProcessor spanProcessor = buildSpanProcessorFromConfig(exporter);
+//
+//        // 4) Build a Sampler
+//        Sampler sampler = buildSamplerFromConfig();
+//
+//        // 5) Create SdkTracerProvider
+//        SdkTracerProvider tracerProvider = SdkTracerProvider.builder()
+//                .setResource(resource)
+//                .setSampler(sampler)  // if there's a parent, we respect parent's decision
+//                .addSpanProcessor(spanProcessor)
+//                .build();
+//
+//        // 6) Meter provider for system metrics
+////        SdkMeterProvider meterProvider = SdkMeterProvider.builder()
+////                .setResource(resource)
+////                .registerMetricReader(
+////                        PeriodicMetricReader.builder(LoggingMetricExporter.create())
+////                                .setInterval(5, TimeUnit.SECONDS)
+////                                .build()
+////                )
+////                .build();
+//
 //        SdkMeterProvider meterProvider = SdkMeterProvider.builder()
 //                .setResource(resource)
-//                .registerMetricReader(
-//                        PeriodicMetricReader.builder(LoggingMetricExporter.create())
-//                                .setInterval(5, TimeUnit.SECONDS)
-//                                .build()
-//                )
 //                .build();
-
-        SdkMeterProvider meterProvider = SdkMeterProvider.builder()
-                .setResource(resource)
-                .build();
-
-        // 7) Build OpenTelemetrySdk
-        OpenTelemetrySdk sdk = OpenTelemetrySdk.builder()
-                .setTracerProvider(tracerProvider)
-                .setMeterProvider(meterProvider)
-                .setPropagators(ContextPropagators.create(W3CTraceContextPropagator.getInstance()))
-                .build();
-
-        // 8) Set as global
-        GlobalOpenTelemetry.set(sdk);
-
-        // 9) optional graceful shutdown
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("[GenericByteBuddyAgent] Shutdown -> closing tracerProvider & meterProvider");
-            spanProcessor.forceFlush().join(5, TimeUnit.SECONDS);
-            tracerProvider.shutdown();
-            meterProvider.shutdown();
-        }));
-
-        // 10) Start system metrics
-        SystemMetrics.registerGauges();
-
-        System.out.println("[GenericByteBuddyAgent] OTel setup done with config-based exporter, processor, sampler.");
-    }
+//
+//        // 7) Build OpenTelemetrySdk
+//        OpenTelemetrySdk sdk = OpenTelemetrySdk.builder()
+//                .setTracerProvider(tracerProvider)
+//                .setMeterProvider(meterProvider)
+//                .setPropagators(ContextPropagators.create(W3CTraceContextPropagator.getInstance()))
+//                .build();
+//
+//        // 8) Set as global
+//        GlobalOpenTelemetry.set(sdk);
+//
+//        // 9) optional graceful shutdown
+//        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+//            System.out.println("[GenericByteBuddyAgent] Shutdown -> closing tracerProvider & meterProvider");
+//            spanProcessor.forceFlush().join(5, TimeUnit.SECONDS);
+//            tracerProvider.shutdown();
+//            meterProvider.shutdown();
+//        }));
+//
+//        // 10) Start system metrics
+//        SystemMetrics.registerGauges();
+//
+//        System.out.println("[GenericByteBuddyAgent] OTel setup done with config-based exporter, processor, sampler.");
+//    }
 
     private static SpanExporter buildExporterFromConfig() {
         String exporterType = ConfigReader.getExporterType(); // "jaeger" or "azure"
@@ -1017,13 +1079,19 @@ public class GenericByteBuddyAgent {
         String processorType = ConfigReader.getSpanProcessorType(); // "batch" or "simple"
         System.out.println("[GenericByteBuddyAgent] span.processor=" + processorType);
 
+        // Create the base processor based on configuration
+        SpanProcessor baseProcessor;
         if ("simple".equalsIgnoreCase(processorType)) {
-            return SimpleSpanProcessor.create(exporter);
+            baseProcessor = SimpleSpanProcessor.create(exporter);
+        } else {
+            // default = batch
+            baseProcessor = BatchSpanProcessor.builder(exporter)
+                    .setScheduleDelay(100, TimeUnit.MILLISECONDS) // Flush more frequently
+                    .build();
         }
-        // default = batch
-        return BatchSpanProcessor.builder(exporter)
-                .setScheduleDelay(100, TimeUnit.MILLISECONDS) // Flush more frequently
-                .build();
+
+        // Wrap the base processor with our trace filtering processor
+        return new TraceFilteringSpanProcessor(baseProcessor);
     }
 
     private static Sampler buildSamplerFromConfig() {

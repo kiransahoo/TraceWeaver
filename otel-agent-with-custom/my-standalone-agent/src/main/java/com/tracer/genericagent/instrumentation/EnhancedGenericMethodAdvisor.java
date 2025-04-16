@@ -49,6 +49,15 @@ public class EnhancedGenericMethodAdvisor {
             List<String> includeMethodPatterns,
             List<String> excludeMethodPatterns
     ) {
+        // Verify the SimplifiedGenericMethodAdvice class can be loaded
+        try {
+            Class<?> adviceClass = SimplifiedGenericMethodAdvice.class;
+            System.out.println("[EnhancedAdvisor] Successfully verified advice class: " + adviceClass.getName());
+        } catch (Throwable t) {
+            System.err.println("[EnhancedAdvisor] ERROR: Cannot load advice class: " + t.getMessage());
+            t.printStackTrace();
+        }
+
         // Get configured excludes
         List<String> configExcludes = ConfigReader.getPackageExcludes();
 
@@ -62,7 +71,8 @@ public class EnhancedGenericMethodAdvisor {
         System.out.println("[EnhancedAdvisor] Exclude methods: " + excludeMethodPatterns);
 
         // Use the most basic AgentBuilder configuration for compatibility
-        AgentBuilder agentBuilder = new AgentBuilder.Default();
+        AgentBuilder agentBuilder = new AgentBuilder.Default()
+                .with(AgentBuilder.Listener.StreamWriting.toSystemOut().withErrorsOnly());
 
         // For each *included* package prefix, transform matching classes
         for (String prefix : packagePrefixes) {
@@ -86,6 +96,7 @@ public class EnhancedGenericMethodAdvisor {
                     .transform((builder, typeDescription, classLoader, module, protectionDomain) -> {
                         // Skip problematic classloaders
                         if (classLoader == null) {
+                            System.out.println("[EnhancedAdvisor] Skipping null classloader for: " + typeDescription.getName());
                             return builder;
                         }
 
@@ -124,10 +135,16 @@ public class EnhancedGenericMethodAdvisor {
                                         .and(not(isAbstract()))
                                         .and(not(isNative()));
 
-                        // Intercept methods with our simplified advice
-                        return builder
-                                .method(finalMatcher)
-                                .intercept(Advice.to(SimplifiedGenericMethodAdvice.class));
+                        try {
+                            // Revert to the original approach without specifying ClassLoader
+                            return builder
+                                    .method(finalMatcher)
+                                    .intercept(Advice.to(SimplifiedGenericMethodAdvice.class));
+                        } catch (Throwable t) {
+                            System.err.println("[EnhancedAdvisor] ERROR applying instrumentation to " + className + ": " + t.getMessage());
+                            t.printStackTrace();
+                            return builder;
+                        }
                     });
         }
 
