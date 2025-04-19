@@ -60,6 +60,12 @@ public class GenericByteBuddyAgent {
 
     public static void premain(String agentArgs, Instrumentation inst) {
         try {
+            // Force early loading of shaded LogManager
+            Class.forName("com.tracer.shaded.org.apache.logging.log4j.LogManager");
+        } catch (Exception e) {
+            System.err.println("Failed to preload shaded LogManager: " + e);
+        }
+        try {
             // Print environment information
             printEnvironmentInfo();
 
