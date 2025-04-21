@@ -63,7 +63,10 @@ public class EnhancedGenericMethodAdvisor {
             "org.springframework.core",
             "org.springframework.aop",
             "org.springframework.boot",
-            "org.springframework.util"
+            "org.springframework.util",
+
+            // Application-specific logging packages
+            "com.geico.claims.common.integration.utility.logging"
             // Other exclusions
     );
 
@@ -122,7 +125,14 @@ public class EnhancedGenericMethodAdvisor {
                     // Log4j utility specific exclusions
                     .and(not(nameContains("LoaderUtil")))
                     .and(not(nameContains("log4j.util")))
-                    .and(not(nameContains("LogManager")));
+                    .and(not(nameContains("LogManager")))
+                    . and(not(nameContains("Logger")))
+                    .and(not(nameContains("Logging")))
+                    .and(not(nameContains("Interpolator")))
+                    .and(not(nameContains("ContextData")))
+                    .and(not(nameContains("ClassLoaderContext")))
+                    .and(not(nameContains("ReflectionUtil")));
+
             // Exclude all proxy classes by name pattern - prevents JBoss EJB proxy issues
             typeMatcher = typeMatcher
                     .and(not(nameContains("$$$view")))       // JBoss EJB view proxies
