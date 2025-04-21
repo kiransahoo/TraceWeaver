@@ -55,7 +55,15 @@ public class EnhancedGenericMethodAdvisor {
             "org.apache.tomcat.juli",
             "org.apache.catalina.logger",
             "org.wildfly.common.logger",
-            "org.springframework.beans"
+            // All Spring Framework packages
+            "org.springframework",
+            "org.springframework.beans",
+            "org.springframework.context",
+            "org.springframework.web",
+            "org.springframework.core",
+            "org.springframework.aop",
+            "org.springframework.boot",
+            "org.springframework.util"
             // Other exclusions
     );
 
@@ -105,7 +113,16 @@ public class EnhancedGenericMethodAdvisor {
                     .and(not(nameContains("jaxb")))
                     .and(not(nameContains("jaxws")))
                     .and(not(nameContains(".bytebuddy.")))
-                    .and(not(nameContains(".opentelemetry.")));
+                    .and(not(nameContains(".opentelemetry.")))
+                    // Spring Framework specific exclusions
+                    .and(not(nameContains("BeanFactory")))
+                    .and(not(nameContains("BeanCreation")))
+                    .and(not(nameContains("ApplicationContext")))
+                    .and(not(nameContains("ContextLoader")))
+                    // Log4j utility specific exclusions
+                    .and(not(nameContains("LoaderUtil")))
+                    .and(not(nameContains("log4j.util")))
+                    .and(not(nameContains("LogManager")));
             // Exclude all proxy classes by name pattern - prevents JBoss EJB proxy issues
             typeMatcher = typeMatcher
                     .and(not(nameContains("$$$view")))       // JBoss EJB view proxies
