@@ -40,7 +40,23 @@ public class EnhancedGenericMethodAdvisor {
             "jakarta.",
             "com.fasterxml.jackson",
             "io.opentelemetry",
-            "net.bytebuddy"
+            "net.bytebuddy",
+            // All logging frameworks
+            "org.jboss.logmanager",
+            "org.jboss.logging",
+            "org.slf4j",
+            "org.apache.log4j",
+            "org.apache.logging",
+            "org.apache.logging.log4j",
+            "ch.qos.logback",
+            "java.util.logging",
+            "org.apache.commons.logging",
+            "org.apache.juli",
+            "org.apache.tomcat.juli",
+            "org.apache.catalina.logger",
+            "org.wildfly.common.logger",
+            "org.springframework.beans"
+            // Other exclusions
     );
 
     public static void install(
@@ -90,6 +106,18 @@ public class EnhancedGenericMethodAdvisor {
                     .and(not(nameContains("jaxws")))
                     .and(not(nameContains(".bytebuddy.")))
                     .and(not(nameContains(".opentelemetry.")));
+            // Exclude all proxy classes by name pattern - prevents JBoss EJB proxy issues
+            typeMatcher = typeMatcher
+                    .and(not(nameContains("$$$view")))       // JBoss EJB view proxies
+                    .and(not(nameContains("$Proxy")))        // JDK dynamic proxies
+                    .and(not(nameContains("$$EnhancedBy")))  // Enhancement frameworks
+                    .and(not(nameContains("FastClass")))     // CGLIB proxies
+                    .and(not(nameContains("$$_javassist_"))) // Javassist proxies
+                    .and(not(nameContains("$HibernateProxy"))) // Hibernate proxies
+                    .and(not(nameContains("_WeldClientProxy"))) // CDI proxies
+                    .and(not(nameContains("$EJBClient")))    // EJB client proxies
+                    .and(not(nameMatches(".*\\$\\d+$")));    // Anonymous inner classes
+
 
             agentBuilder = agentBuilder
                     .type(typeMatcher)
