@@ -430,4 +430,34 @@ public class ConfigReader {
         String val = getPropOrEnv("exception.filter.enabled", "TRACE_EXCEPTION_FILTER_ENABLED");
         return val.isEmpty() ? true : Boolean.parseBoolean(val);
     }
+
+    /**
+     * Gets the maximum number of pending traces to keep in memory
+     * @return Maximum number of traces to store in memory
+     */
+    public static int getMaxPendingTraces() {
+        String value = getPropOrEnv("trace.memory.max.pending.traces", "1000");
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            System.out.println("[ConfigReader] Invalid max pending traces value: " + value +
+                    ", using default: 1000");
+            return 1000;
+        }
+    }
+
+    /**
+     * Gets the maximum number of spans to keep per trace
+     * @return Maximum number of spans per trace to store in memory
+     */
+    public static int getMaxSpansPerTrace() {
+        String value = getPropOrEnv("trace.memory.max.spans.per.trace", "100");
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            System.out.println("[ConfigReader] Invalid max spans per trace value: " + value +
+                    ", using default: 100");
+            return 100;
+        }
+    }
 }

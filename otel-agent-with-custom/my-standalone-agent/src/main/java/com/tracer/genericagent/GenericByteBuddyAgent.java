@@ -38,11 +38,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Queue;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -59,12 +55,7 @@ import java.util.concurrent.TimeUnit;
 public class GenericByteBuddyAgent {
 
     public static void premain(String agentArgs, Instrumentation inst) {
-        try {
-            // Force early loading of shaded LogManager
-            Class.forName("com.tracer.shaded.org.apache.logging.log4j.LogManager");
-        } catch (Exception e) {
-            System.err.println("Failed to preload shaded LogManager: " + e);
-        }
+
         try {
             // Print environment information
             printEnvironmentInfo();
@@ -242,7 +233,6 @@ public class GenericByteBuddyAgent {
         }
 
         if (!hasSafeConfiguration) {
-            System.out.println("⚠️ WARNING: You are not instrumenting any com.myorg.* packages. This may cause unexpected behavior!");
             System.out.println("   Consider using strictMode=true to avoid unintentional instrumentation of third-party code.");
         }
     }
@@ -261,8 +251,8 @@ public class GenericByteBuddyAgent {
         try {
             // 1) Resource
             Resource resource = Resource.builder()
-                    .put("service.name", "GenericByteBuddyAgentService")
-                    .put("library.name", "generic-agent")
+                    .put("service.name", "TraceBuddyAgentService")
+                    .put("library.name", "tracebuddy-agent")
                     .put("library.version", "1.0.0")
                     .build();
 
@@ -399,13 +389,19 @@ public class GenericByteBuddyAgent {
         String endpoint = ConfigReader.getJaegerEndpoint(); // default http://localhost:14250
         System.out.println("[GenericByteBuddyAgent] Using Jaeger Exporter endpoint=" + endpoint);
 
+//        try {
+//            return JaegerGrpcSpanExporter.builder()
+//                    .setEndpoint(endpoint)
+//                    .build();
+//        } catch (Exception e) {
+//            System.err.println("[GenericByteBuddyAgent] Error creating Jaeger exporter: " + e.getMessage());
+//            // Provide a no-op exporter as fallback
+//            return NoopSpanExporter.getInstance();
+//        }
         try {
-            return JaegerGrpcSpanExporter.builder()
-                    .setEndpoint(endpoint)
-                    .build();
+            return buildFilteredJaegerExporter(endpoint);
         } catch (Exception e) {
             System.err.println("[GenericByteBuddyAgent] Error creating Jaeger exporter: " + e.getMessage());
-            // Provide a no-op exporter as fallback
             return NoopSpanExporter.getInstance();
         }
     }
@@ -679,6 +675,43 @@ public class GenericByteBuddyAgent {
         };
     }
 
+    private static SpanExporter buildFilteredJaegerExporter(String endpoint) {
+        final SpanExporter jaegerExporter = JaegerGrpcSpanExporter.builder()
+                .setEndpoint(endpoint)
+                .build();
+
+        return new SpanExporter() {
+            @Override
+            public CompletableResultCode export(Collection<SpanData> spans) {
+                // Apply the same filtering logic here
+                List<SpanData> filteredSpans = filterBatchBySLA(new ArrayList<>(spans));
+
+                if (filteredSpans.isEmpty()) {
+                    System.out.println("[JaegerExporter] All " + spans.size() + " spans filtered out");
+                    return CompletableResultCode.ofSuccess();
+                }
+
+                if (filteredSpans.size() < spans.size()) {
+                    System.out.println("[JaegerExporter] Filtered out " +
+                            (spans.size() - filteredSpans.size()) + " of " +
+                            spans.size() + " spans");
+                }
+
+                return jaegerExporter.export(filteredSpans);
+            }
+
+            @Override
+            public CompletableResultCode flush() {
+                return jaegerExporter.flush();
+            }
+
+            @Override
+            public CompletableResultCode shutdown() {
+                return jaegerExporter.shutdown();
+            }
+        };
+    }
+
     /**
      * Helper method to flush the buffer of spans to Azure
      */
@@ -717,18 +750,104 @@ public class GenericByteBuddyAgent {
         }
     }
 
+//    /**
+//     * Send a batch of spans with retry logic
+//     */
+//    private static void sendBatchWithRetry(List<SpanData> batch, String endpoint,
+//                                           String instrumentationKey, int maxRetries) {
+//        int retries = 0;
+//        boolean success = false;
+//
+//        while (!success && retries <= maxRetries) {
+//            try {
+//                // Convert to batch payload
+//                String payload = convertBatchToAIFormat(batch, instrumentationKey);
+//
+//                // Send via HTTP
+//                URL url = new URL(endpoint);
+//                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+//                conn.setRequestMethod("POST");
+//                conn.setRequestProperty("Content-Type", "application/json");
+//                conn.setConnectTimeout(5000);
+//                conn.setReadTimeout(10000);
+//                conn.setDoOutput(true);
+//
+//                try (OutputStream os = conn.getOutputStream()) {
+//                    os.write(payload.getBytes("UTF-8"));
+//                }
+//
+//                int responseCode = conn.getResponseCode();
+//                if (responseCode >= 200 && responseCode < 300) {
+//                    success = true;
+//                    System.out.println("[DirectExporter] Successfully sent " + batch.size() + " spans");
+//                } else {
+//                    System.err.println("[DirectExporter] Failed to send batch: HTTP " + responseCode);
+//                    // Read error response
+//                    try (BufferedReader reader = new BufferedReader(
+//                            new InputStreamReader(conn.getErrorStream()))) {
+//                        String line;
+//                        StringBuilder response = new StringBuilder();
+//                        while ((line = reader.readLine()) != null) {
+//                            response.append(line);
+//                        }
+//                        System.err.println("[DirectExporter] Error response: " + response.toString());
+//                    } catch (Exception e) {
+//                        System.err.println("[DirectExporter] Error reading error response: " + e.getMessage());
+//                    }
+//                }
+//            } catch (Exception e) {
+//                System.err.println("[DirectExporter] Error sending batch (retry " + retries + "): " + e.getMessage());
+//            }
+//
+//            if (!success) {
+//                retries++;
+//                if (retries <= maxRetries) {
+//                    // Exponential backoff
+//                    try {
+//                        long backoffMs = (long) Math.min(1000 * Math.pow(2, retries), 30000);
+//                        System.out.println("[DirectExporter] Retrying in " + backoffMs + "ms");
+//                        Thread.sleep(backoffMs);
+//                    } catch (InterruptedException ie) {
+//                        Thread.currentThread().interrupt();
+//                        break;
+//                    }
+//                }
+//            }
+//        }
+//
+//        if (!success) {
+//            System.err.println("[DirectExporter] Failed to send batch after " + maxRetries + " retries");
+//        }
+//    }
+
     /**
-     * Send a batch of spans with retry logic
+     * Send a batch of spans with retry logic and filtering
      */
     private static void sendBatchWithRetry(List<SpanData> batch, String endpoint,
                                            String instrumentationKey, int maxRetries) {
+        // Apply filtering before sending
+        List<SpanData> filteredBatch = filterBatchBySLA(batch);
+
+        // If all spans were filtered out, skip sending
+        if (filteredBatch.isEmpty()) {
+            System.out.println("[DirectExporter] All " + batch.size() + " spans filtered out");
+            return;
+        }
+
+        // Log filtering metrics
+        if (filteredBatch.size() < batch.size()) {
+            System.out.println("[DirectExporter] Filtered out " +
+                    (batch.size() - filteredBatch.size()) + " of " +
+                    batch.size() + " spans");
+        }
+
         int retries = 0;
         boolean success = false;
 
         while (!success && retries <= maxRetries) {
             try {
-                // Convert to batch payload
-                String payload = convertBatchToAIFormat(batch, instrumentationKey);
+                // Convert to batch payload - use the filtered batch
+                String payload = convertBatchToAIFormat(filteredBatch, instrumentationKey);
 
                 // Send via HTTP
                 URL url = new URL(endpoint);
@@ -746,7 +865,7 @@ public class GenericByteBuddyAgent {
                 int responseCode = conn.getResponseCode();
                 if (responseCode >= 200 && responseCode < 300) {
                     success = true;
-                    System.out.println("[DirectExporter] Successfully sent " + batch.size() + " spans");
+                    System.out.println("[DirectExporter] Successfully sent " + filteredBatch.size() + " spans");
                 } else {
                     System.err.println("[DirectExporter] Failed to send batch: HTTP " + responseCode);
                     // Read error response
@@ -788,6 +907,77 @@ public class GenericByteBuddyAgent {
     }
 
     /**
+     * Filter a batch of spans based on SLA and error criteria
+     */
+    private static List<SpanData> filterBatchBySLA(List<SpanData> batch) {
+        // Get configuration
+        boolean slaFilteringEnabled = ConfigReader.isSlaFilteringEnabled();
+        long slaThresholdMs = ConfigReader.getSlaThresholdMs();
+        boolean exceptionFilteringEnabled = ConfigReader.isExceptionFilteringEnabled();
+
+        // Fast path if no filtering is enabled
+        if (!slaFilteringEnabled && !exceptionFilteringEnabled) {
+            return batch;
+        }
+
+        // Group spans by trace ID for processing
+        Map<String, List<SpanData>> spansByTrace = new HashMap<>();
+        Map<String, Boolean> traceHasError = new HashMap<>();
+        Map<String, Long> traceMaxDuration = new HashMap<>();
+
+        // Analyze spans to collect trace data
+        for (SpanData span : batch) {
+            String traceId = span.getTraceId();
+
+            // Group spans by trace
+            spansByTrace.computeIfAbsent(traceId, k -> new ArrayList<>()).add(span);
+
+            // Check for errors
+            if (span.getStatus().getStatusCode() == io.opentelemetry.api.trace.StatusCode.ERROR) {
+                traceHasError.put(traceId, true);
+            }
+
+            // Calculate duration
+            long durationNanos = span.getEndEpochNanos() - span.getStartEpochNanos();
+            long durationMs = TimeUnit.NANOSECONDS.toMillis(durationNanos);
+
+            // Update max duration for trace
+            traceMaxDuration.compute(traceId, (k, v) ->
+                    v == null ? durationMs : Math.max(v, durationMs));
+        }
+
+        // Build filtered batch
+        List<SpanData> filteredBatch = new ArrayList<>();
+
+        // Process each trace
+        for (String traceId : spansByTrace.keySet()) {
+            boolean keepTrace = false;
+
+            // Check SLA threshold if enabled
+            if (slaFilteringEnabled && traceMaxDuration.getOrDefault(traceId, 0L) >= slaThresholdMs) {
+                keepTrace = true;
+                System.out.println("[FilterLogic] Keeping trace due to SLA: " + traceId +
+                        " (" + traceMaxDuration.get(traceId) + "ms > " + slaThresholdMs + "ms)");
+            }
+
+            // Check for errors if enabled
+            if (exceptionFilteringEnabled && Boolean.TRUE.equals(traceHasError.get(traceId))) {
+                keepTrace = true;
+                System.out.println("[FilterLogic] Keeping trace due to error: " + traceId);
+            }
+
+            // Add all spans for this trace if we're keeping it
+            if (keepTrace) {
+                filteredBatch.addAll(spansByTrace.get(traceId));
+            }
+        }
+
+        return filteredBatch;
+    }
+
+
+
+    /**
      * Convert a batch of spans to Application Insights format
      */
     private static String convertBatchToAIFormat(List<SpanData> spans, String instrumentationKey) {
@@ -812,20 +1002,122 @@ public class GenericByteBuddyAgent {
         return sb.toString();
     }
 
+//    /**
+//     * Convert a single span to Application Insights JSON format
+//     */
+//    private static String convertSpanToAIJson(SpanData span, String instrumentationKey, boolean isRequest) {
+//        Instant startTime = Instant.ofEpochSecond(0, span.getStartEpochNanos());
+//        Duration duration = Duration.ofNanos(span.getEndEpochNanos() - span.getStartEpochNanos());
+//
+//        // Format duration as App Insights expects: "00:00:00.123"
+////        String formattedDuration = String.format("%02d:%02d:%02d.%03d",
+////                duration.toHoursPart(),
+////                duration.toMinutesPart(),
+////                duration.toSecondsPart(),
+////                duration.toMillisPart());
+//
+//        long totalSeconds = duration.getSeconds();
+//        long hours = totalSeconds / 3600;
+//        long minutes = (totalSeconds % 3600) / 60;
+//        long seconds = totalSeconds % 60;
+//        int millis = duration.getNano() / 1_000_000;
+//
+//        String formattedDuration = String.format("%02d:%02d:%02d.%03d",
+//                hours, minutes, seconds, millis);
+//
+//        if (isRequest) {
+//            return String.format(
+//                    "{" +
+//                            "\"name\":\"Microsoft.ApplicationInsights.Request\"," +
+//                            "\"time\":\"%s\"," +
+//                            "\"iKey\":\"%s\"," +
+//                            "\"tags\":{" +
+//                            "\"ai.operation.id\":\"%s\"," +
+//                            "\"ai.operation.name\":\"%s\"," +
+//                            "\"ai.internal.sdkVersion\":\"java:otel-agent:1.0.0\"," +
+//                            "\"ai.cloud.role\":\"%s\"" +
+//                            "}," +
+//                            "\"data\":{" +
+//                            "\"baseType\":\"RequestData\"," +
+//                            "\"baseData\":{" +
+//                            "\"ver\":2," +
+//                            "\"id\":\"%s\"," +
+//                            "\"name\":\"%s\"," +
+//                            "\"duration\":\"%s\"," +
+//                            "\"responseCode\":\"200\"," +
+//                            "\"success\":%b," +
+//                            "\"properties\":%s" +
+//                            "}" +
+//                            "}" +
+//                            "}",
+//                    startTime.toString(),
+//                    instrumentationKey,
+//                    span.getTraceId(),
+//                    span.getName(),
+//                    getAttributeValue(span.getAttributes(), "service.name", "MyOrgApplication"),
+//                    span.getSpanId(),
+//                    span.getName(),
+//                    formattedDuration,
+//                    span.getStatus().getStatusCode() == io.opentelemetry.api.trace.StatusCode.OK,
+//                    convertAttributesToJson(span.getAttributes())
+//            );
+//        } else {
+//            // Dependency type span
+//            return String.format(
+//                    "{" +
+//                            "\"name\":\"Microsoft.ApplicationInsights.RemoteDependency\"," +
+//                            "\"time\":\"%s\"," +
+//                            "\"iKey\":\"%s\"," +
+//                            "\"tags\":{" +
+//                            "\"ai.operation.id\":\"%s\"," +
+//                            "\"ai.operation.name\":\"%s\"," +
+//                            "\"ai.internal.sdkVersion\":\"java:otel-agent:1.0.0\"," +
+//                            "\"ai.cloud.role\":\"%s\"" +
+//                            "}," +
+//                            "\"data\":{" +
+//                            "\"baseType\":\"RemoteDependencyData\"," +
+//                            "\"baseData\":{" +
+//                            "\"ver\":2," +
+//                            "\"name\":\"%s\"," +
+//                            "\"id\":\"%s\"," +
+//                            "\"duration\":\"%s\"," +
+//                            "\"success\":%b," +
+//                            "\"data\":\"%s\"," +
+//                            "\"target\":\"\"," +
+//                            "\"type\":\"InProc\"," +
+//                            "\"properties\":%s" +
+//                            "}" +
+//                            "}" +
+//                            "}",
+//                    startTime.toString(),
+//                    instrumentationKey,
+//                    span.getTraceId(),
+//                    span.getName(),
+//                    getAttributeValue(span.getAttributes(), "service.name", "MyOrgApplication"),
+//                    span.getName(),
+//                    span.getSpanId(),
+//                    formattedDuration,
+//                    span.getStatus().getStatusCode() == io.opentelemetry.api.trace.StatusCode.OK,
+//                    span.getName(),
+//                    convertAttributesToJson(span.getAttributes())
+//            );
+//        }
+//    }
+
     /**
      * Convert a single span to Application Insights JSON format
+     * (Updated to include SLA breach notifications)
      */
     private static String convertSpanToAIJson(SpanData span, String instrumentationKey, boolean isRequest) {
         Instant startTime = Instant.ofEpochSecond(0, span.getStartEpochNanos());
         Duration duration = Duration.ofNanos(span.getEndEpochNanos() - span.getStartEpochNanos());
 
-        // Format duration as App Insights expects: "00:00:00.123"
-//        String formattedDuration = String.format("%02d:%02d:%02d.%03d",
-//                duration.toHoursPart(),
-//                duration.toMinutesPart(),
-//                duration.toSecondsPart(),
-//                duration.toMillisPart());
+        // Calculate duration in milliseconds for SLA check
+        long durationMs = TimeUnit.NANOSECONDS.toMillis(span.getEndEpochNanos() - span.getStartEpochNanos());
+        long slaThresholdMs = ConfigReader.getSlaThresholdMs();
+        boolean isSlaBreached = durationMs >= slaThresholdMs;
 
+        // Format duration as App Insights expects: "00:00:00.123"
         long totalSeconds = duration.getSeconds();
         long hours = totalSeconds / 3600;
         long minutes = (totalSeconds % 3600) / 60;
@@ -834,6 +1126,22 @@ public class GenericByteBuddyAgent {
 
         String formattedDuration = String.format("%02d:%02d:%02d.%03d",
                 hours, minutes, seconds, millis);
+
+        // Create properties JSON with additional SLA info if breached
+        String propertiesJson = convertAttributesToJson(span.getAttributes());
+        if (isSlaBreached) {
+            // Add SLA-specific properties
+            // Remove the closing brace
+            if (propertiesJson.endsWith("}")) {
+                propertiesJson = propertiesJson.substring(0, propertiesJson.length() - 1);
+                // Add SLA breach properties
+                propertiesJson += String.format("%s\"sla.breach\":true,\"sla.threshold_ms\":%d,\"sla.duration_ms\":%d,\"ai.event.name\":\"SLABreach\"}",
+                        propertiesJson.length() > 1 ? "," : "", slaThresholdMs, durationMs);
+            }
+
+            System.out.println("[SLA ALERT] Span " + span.getName() +
+                    " exceeded SLA threshold: " + durationMs + "ms > " + slaThresholdMs + "ms");
+        }
 
         if (isRequest) {
             return String.format(
@@ -869,7 +1177,7 @@ public class GenericByteBuddyAgent {
                     span.getName(),
                     formattedDuration,
                     span.getStatus().getStatusCode() == io.opentelemetry.api.trace.StatusCode.OK,
-                    convertAttributesToJson(span.getAttributes())
+                    propertiesJson
             );
         } else {
             // Dependency type span
@@ -909,11 +1217,10 @@ public class GenericByteBuddyAgent {
                     formattedDuration,
                     span.getStatus().getStatusCode() == io.opentelemetry.api.trace.StatusCode.OK,
                     span.getName(),
-                    convertAttributesToJson(span.getAttributes())
+                    propertiesJson
             );
         }
     }
-
     /**
      * Get attribute value with default
      */
@@ -1093,11 +1400,15 @@ public class GenericByteBuddyAgent {
             // default = batch
             baseProcessor = BatchSpanProcessor.builder(exporter)
                     .setScheduleDelay(100, TimeUnit.MILLISECONDS) // Flush more frequently
+                    .setMaxExportBatchSize(512) // Reasonable batch size
+                    .setMaxQueueSize(2048) // Prevent excessive memory use
                     .build();
         }
 
+
         // Wrap the base processor with our trace filtering processor
-        return new TraceFilteringSpanProcessor(baseProcessor);
+       return new TraceFilteringSpanProcessor(baseProcessor);
+       // return baseProcessor;
     }
 
     private static Sampler buildSamplerFromConfig() {
