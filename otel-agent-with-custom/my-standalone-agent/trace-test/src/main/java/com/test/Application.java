@@ -15,6 +15,7 @@ import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.HttpRequest;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -22,6 +23,8 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.Map;
 import java.util.HashMap;
+import java.net.HttpURLConnection;
+import javax.net.ssl.HttpsURLConnection;
 
 @SpringBootApplication
 public class Application {
@@ -34,7 +37,25 @@ public class Application {
 
     @Bean
     public RestTemplate restTemplate() {
-        RestTemplate restTemplate = new RestTemplate();
+        // FIX FOR ZSCALER: Bypass proxy for localhost
+        System.setProperty("http.proxyHost", "");
+        System.setProperty("https.proxyHost", "");
+        System.setProperty("http.nonProxyHosts", "localhost|127.0.0.1");
+
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+            @Override
+            protected void prepareConnection(HttpURLConnection connection, String httpMethod) throws IOException {
+                if (connection instanceof HttpsURLConnection) {
+                    ((HttpsURLConnection) connection).setHostnameVerifier((hostname, session) ->
+                            hostname.equals("localhost") || hostname.equals("127.0.0.1"));
+                }
+                super.prepareConnection(connection, httpMethod);
+            }
+        };
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(5000);
+
+        RestTemplate restTemplate = new RestTemplate(factory);
 
         // Add request/response logging interceptor
         List<ClientHttpRequestInterceptor> interceptors = new ArrayList<>();
