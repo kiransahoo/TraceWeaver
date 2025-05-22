@@ -59,6 +59,10 @@ java \
     --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED \
     --add-exports=java.base/sun.nio.ch=ALL-UNNAMED \
     -Djdk.attach.allowAttachSelf=true \
+    -Dhttp.nonProxyHosts="localhost|127.0.0.1" \
+    -Dhttps.nonProxyHosts="localhost|127.0.0.1" \
+    -Dhttp.proxyHost="" \
+    -Dhttps.proxyHost="" \
     -javaagent:$CUSTOM_AGENT_JAR_PATH \
     -javaagent:$AI_AGENT_JAR \
     -Dapplicationinsights.configuration.file=$AI_CONFIG \
