@@ -15,6 +15,7 @@ import net.bytebuddy.asm.Advice;
  * Production-grade advice for method instrumentation with OpenTelemetry.
  * Features robust error handling, detailed span attributes, and proper context propagation.
  */
+@Deprecated
 public class GenericMethodAdvice {
 
     private static final Tracer tracer = GlobalOpenTelemetry.getTracer("generic-agent-tracer", "1.0.0");

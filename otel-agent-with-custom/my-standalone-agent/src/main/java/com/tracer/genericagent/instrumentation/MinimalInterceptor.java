@@ -13,6 +13,7 @@ import java.util.concurrent.Callable;
  * Ultra-minimal interceptor for environments with severe restrictions.
  * Maximum compatibility with minimal features.
  */
+@Deprecated
 public class MinimalInterceptor {
 
     private static final Tracer tracer = GlobalOpenTelemetry.getTracer("generic-agent");

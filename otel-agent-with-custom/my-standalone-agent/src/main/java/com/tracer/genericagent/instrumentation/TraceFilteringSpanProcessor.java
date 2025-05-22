@@ -1,5 +1,6 @@
 package com.tracer.genericagent.instrumentation;
 
+
 import com.tracer.genericagent.util.ConfigReader;
 
 import io.opentelemetry.api.common.AttributeKey;
@@ -53,10 +54,10 @@ public class TraceFilteringSpanProcessor implements SpanProcessor {
         this.slaThresholdMs = ConfigReader.getSlaThresholdMs();
         this.exceptionFilteringEnabled = ConfigReader.isExceptionFilteringEnabled();
 
-        System.out.println("[TraceFilter] Initialized with: " +
-                "slaFilteringEnabled=" + slaFilteringEnabled +
-                ", slaThresholdMs=" + slaThresholdMs +
-                ", exceptionFilteringEnabled=" + exceptionFilteringEnabled);
+//        System.out.println("[TraceFilter] Initialized with: " +
+//                "slaFilteringEnabled=" + slaFilteringEnabled +
+//                ", slaThresholdMs=" + slaThresholdMs +
+//                ", exceptionFilteringEnabled=" + exceptionFilteringEnabled);
 
         // Schedule cleanup for stale traces
         this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -109,148 +110,167 @@ public class TraceFilteringSpanProcessor implements SpanProcessor {
 
     @Override
     public void onEnd(ReadableSpan span) {
-        // Extract span data
-        SpanContext spanContext = span.getSpanContext();
-        String traceId = spanContext.getTraceId();
-        long currentTimeMs = System.currentTimeMillis();
 
-        // Check span status for errors
-        boolean hasError = spanContext.getTraceFlags().isSampled() &&
-                (span.toString().contains("ERROR") ||
-                        span.toString().contains("StatusCode.ERROR"));
 
-        // If this trace already has a decision, follow it
-        Boolean decision = traceDecisions.get(traceId);
-        if (decision != null) {
-            if (decision) {
-                // Trace already decided to be exported
-                delegate.onEnd(span);
-            }
-            return;
-        }
+            // Extract span data
+            SpanContext spanContext = span.getSpanContext();
+            String traceId = spanContext.getTraceId();
+            long currentTimeMs = System.currentTimeMillis();
 
-        // Root span detection logic
-        boolean isRootSpan = false;
-        try {
-            // First try the string approach for backward compatibility
-            isRootSpan = !span.toString().contains("parent");
+            // Check span status for errors
+            boolean hasError = spanContext.getTraceFlags().isSampled() &&
+                    (span.toString().contains("ERROR") ||
+                            span.toString().contains("StatusCode.ERROR"));
 
-            // Also treat spans that have certain attributes as root spans
-            if (!isRootSpan) {
-                // Check for HTTP server spans, which are typical entry points
-                String kind = null;
-                try {
-                    kind = span.toString().contains("SERVER") ? "SERVER" : null;
-                } catch (Exception e) {
-                    // Ignore if we can't access this
+            // If this trace already has a decision, follow it
+            Boolean decision = traceDecisions.get(traceId);
+            if (decision != null) {
+                if (decision) {
+                    // Trace already decided to be exported
+                    delegate.onEnd(span);
                 }
-
-                isRootSpan = "SERVER".equals(kind);
+                return;
             }
-        } catch (Exception e) {
-            // Fall back to the original approach if anything goes wrong
-            isRootSpan = !span.toString().contains("parent");
-            System.out.println("[TraceFilter] Error in root span detection: " + e.getMessage());
-        }
 
-        // Update trace info
-        TraceInfo updatedInfo = activeTraces.compute(traceId, (id, info) -> {
-            if (info == null) {
-                return new TraceInfo(currentTimeMs, currentTimeMs, hasError);
-            } else {
-                return new TraceInfo(
-                        info.earliestStartTimeMs,
-                        Math.max(info.latestEndTimeMs, currentTimeMs),
-                        info.hasError || hasError
-                );
+            // Root span detection logic
+            boolean isRootSpan = false;
+            try {
+                // First try the string approach for backward compatibility
+                isRootSpan = !span.toString().contains("parent");
+
+                // Also treat spans that have certain attributes as root spans
+                if (!isRootSpan) {
+                    // Check for HTTP server spans, which are typical entry points
+                    String kind = null;
+                    try {
+                        kind = span.toString().contains("SERVER") ? "SERVER" : null;
+                    } catch (Exception e) {
+                        // Ignore if we can't access this
+                    }
+
+                    isRootSpan = "SERVER".equals(kind);
+                }
+            } catch (Exception e) {
+                // Fall back to the original approach if anything goes wrong
+                isRootSpan = !span.toString().contains("parent");
+                // System.out.println("[TraceFilter] Error in root span detection: " + e.getMessage());
             }
-        });
 
-        // Queue this span for later processing
-        pendingSpans.computeIfAbsent(traceId, k -> new ConcurrentLinkedQueue<>())
-                .add(span);
+            // Update trace info
+            TraceInfo updatedInfo = activeTraces.compute(traceId, (id, info) -> {
+                if (info == null) {
+                    return new TraceInfo(currentTimeMs, currentTimeMs, hasError);
+                } else {
+                    return new TraceInfo(
+                            info.earliestStartTimeMs,
+                            Math.max(info.latestEndTimeMs, currentTimeMs),
+                            info.hasError || hasError
+                    );
+                }
+            });
 
-        // If this is a root span or has error, make trace decision immediately
-        if (isRootSpan || hasError) {
-            makeTraceDecision(traceId, updatedInfo);
-        } else {
-            // For non-root spans without errors, check if the trace has been active
-            // for longer than our decision timeout
-            long age = currentTimeMs - updatedInfo.earliestStartTimeMs;
-            if (age > DECISION_TIMEOUT_MS) {
-                System.out.println("[TraceFilter] Making decision for trace older than " +
-                        (DECISION_TIMEOUT_MS/1000) + "s: " + traceId);
+            // Queue this span for later processing
+            pendingSpans.computeIfAbsent(traceId, k -> new ConcurrentLinkedQueue<>())
+                    .add(span);
+
+            // If this is a root span or has error, make trace decision immediately
+            if (isRootSpan || hasError) {
                 makeTraceDecision(traceId, updatedInfo);
+            } else {
+                // For non-root spans without errors, check if the trace has been active
+                // for longer than our decision timeout
+                long age = currentTimeMs - updatedInfo.earliestStartTimeMs;
+                if (age > DECISION_TIMEOUT_MS) {
+                    System.out.println("[TraceFilter] Making decision for trace older than " +
+                            (DECISION_TIMEOUT_MS / 1000) + "s: " + traceId);
+                    makeTraceDecision(traceId, updatedInfo);
+                }
             }
-        }
+
     }
 
     /**
      * Makes a final decision on whether to export all spans in a trace
      */
     private void makeTraceDecision(String traceId, TraceInfo info) {
-        // Calculate trace duration
-        long durationMs = info.latestEndTimeMs - info.earliestStartTimeMs;
+                // Calculate trace duration
+            long durationMs = info.latestEndTimeMs - info.earliestStartTimeMs;
 
-        // Always check for SLA breaches regardless of filtering setting
-        if (durationMs >= slaThresholdMs) {
-            System.out.println("[SLA ALERT] Trace " + traceId + " exceeded SLA threshold: " +
-                    durationMs + "ms > " + slaThresholdMs + "ms");
+            // Always check for SLA breaches regardless of filtering setting
+            if (durationMs >= slaThresholdMs) {
+//            System.out.println("[SLA ALERT] Trace " + traceId + " exceeded SLA threshold: " +
+//                    durationMs + "ms > " + slaThresholdMs + "ms");
 
-            // Add SLA breach notification for Azure Monitor alerts
-            Queue<ReadableSpan> spans = pendingSpans.get(traceId);
-            if (spans != null && !spans.isEmpty()) {
-                for (ReadableSpan span : spans) {
-                    if (span instanceof ReadWriteSpan) {
-                        ((ReadWriteSpan) span).setAttribute("sla.breach", true);
-                        ((ReadWriteSpan) span).setAttribute("sla.threshold_ms", slaThresholdMs);
-                        ((ReadWriteSpan) span).setAttribute("sla.duration_ms", durationMs);
-                        ((ReadWriteSpan) span).setAttribute("ai.event.name", "SLABreach");
-                        break; // Only need to mark one span for the alert
+                // Add SLA breach notification for Azure Monitor alerts
+                Queue<ReadableSpan> spans = pendingSpans.get(traceId);
+                if (spans != null && !spans.isEmpty()) {
+                    for (ReadableSpan span : spans) {
+                        if (span instanceof ReadWriteSpan) {
+                            ((ReadWriteSpan) span).setAttribute("sla.breach", true);
+                            ((ReadWriteSpan) span).setAttribute("sla.threshold_ms", slaThresholdMs);
+                            ((ReadWriteSpan) span).setAttribute("sla.duration_ms", durationMs);
+                            ((ReadWriteSpan) span).setAttribute("ai.event.name", "SLABreach");
+                            break; // Only need to mark one span for the alert
+                        }
                     }
                 }
             }
-        }
 
+            // FIXED LOGIC: Treat SLA and exception filtering as independent criteria
 
-        // Determine if we should export this trace
-        boolean shouldExport = false;
+            // Default to exporting traces unless filtering is applied
+            boolean shouldExport = true;
 
-        // Check SLA threshold if enabled
-        if (slaFilteringEnabled && durationMs >= slaThresholdMs) {
-            shouldExport = true;
-            System.out.println("[TraceFilter] Trace exceeded SLA threshold: " +
-                    traceId + " (" + durationMs + "ms > " + slaThresholdMs + "ms)");
-        }
+//        // Apply SLA filtering only if enabled
+//        boolean passesSlaCheck = !slaFilteringEnabled || durationMs >= slaThresholdMs;
+//
+//        // Apply exception filtering only if enabled
+//        boolean passesExceptionCheck = !exceptionFilteringEnabled || info.hasError;
+//
+//        // A trace should be exported if it passes both checks
+//        shouldExport = passesSlaCheck && passesExceptionCheck;
 
-        // Check for errors if enabled
-        if (exceptionFilteringEnabled && info.hasError) {
-            shouldExport = true;
-            System.out.println("[TraceFilter] Trace has error(s): " + traceId);
-        }
-
-        // If no filtering is enabled, export everything
-        if (!slaFilteringEnabled && !exceptionFilteringEnabled) {
-            shouldExport = true;
-        }
-
-        // Record decision
-        traceDecisions.put(traceId, shouldExport);
-
-        // Process pending spans based on decision
-        Queue<ReadableSpan> spans = pendingSpans.remove(traceId);
-        if (spans != null) {
-            if (shouldExport) {
-                for (ReadableSpan span : spans) {
-                    delegate.onEnd(span);
-                }
-                System.out.println("[TraceFilter] Exporting " + spans.size() +
-                        " spans for trace: " + traceId);
+            if (slaFilteringEnabled && exceptionFilteringEnabled) {
+                // When both filters enabled, export if EITHER condition is met
+                shouldExport = (durationMs >= slaThresholdMs) || info.hasError;
+            } else if (slaFilteringEnabled) {
+                shouldExport = durationMs >= slaThresholdMs;
+            } else if (exceptionFilteringEnabled) {
+                shouldExport = info.hasError;
             } else {
-                System.out.println("[TraceFilter] Filtered out " + spans.size() +
-                        " spans for trace: " + traceId);
+                shouldExport = true;
             }
-        }
+
+            // Log the reasons for exporting
+            if (shouldExport) {
+                if (slaFilteringEnabled && durationMs >= slaThresholdMs) {
+//                System.out.println("[TraceFilter] Trace exceeded SLA threshold: " +
+//                        traceId + " (" + durationMs + "ms > " + slaThresholdMs + "ms)");
+                }
+
+                if (exceptionFilteringEnabled && info.hasError) {
+                    //  System.out.println("[TraceFilter] Trace has error(s): " + traceId);
+                }
+            }
+
+            // Record decision
+            traceDecisions.put(traceId, shouldExport);
+
+            // Process pending spans based on decision
+            Queue<ReadableSpan> spans = pendingSpans.remove(traceId);
+            if (spans != null) {
+                if (shouldExport) {
+                    for (ReadableSpan span : spans) {
+                        delegate.onEnd(span);
+                    }
+//                System.out.println("[TraceFilter] Exporting " + spans.size() +
+//                        " spans for trace: " + traceId);
+                } else {
+//                System.out.println("[TraceFilter] Filtered out " + spans.size() +
+//                        " spans for trace: " + traceId);
+                }
+            }
+
     }
 
     /**
@@ -271,13 +291,13 @@ public class TraceFilteringSpanProcessor implements SpanProcessor {
             if (!traceDecisions.containsKey(traceId)) {
                 if (info.latestEndTimeMs < staleCutoffMs) {
                     // If trace is stale, make a decision and clean it up
-                    System.out.println("[TraceFilter] Cleaning up stale trace: " + traceId);
+                   // System.out.println("[TraceFilter] Cleaning up stale trace: " + traceId);
                     makeTraceDecision(traceId, info);
                     activeTraces.remove(traceId);
                 } else if (info.earliestStartTimeMs < decisionCutoffMs) {
                     // If trace has been active longer than the decision timeout,
                     // make a decision but keep it in active traces
-                    System.out.println("[TraceFilter] Making decision for active trace: " + traceId);
+                   // System.out.println("[TraceFilter] Making decision for active trace: " + traceId);
                     makeTraceDecision(traceId, info);
                 }
             }

@@ -205,6 +205,11 @@ public class ConfigReader {
         return val.isEmpty() ? "sdk" : val.toLowerCase();
     }
 
+    public static boolean isDebugEnabled() {
+        String val = getPropOrEnv("debug.enabled", "DEBUG_ENABLED");
+        return val.isEmpty() ? false : Boolean.parseBoolean(val);
+    }
+
     /**
      * Gets the retry count for failed exports
      */
@@ -458,6 +463,70 @@ public class ConfigReader {
             System.out.println("[ConfigReader] Invalid max spans per trace value: " + value +
                     ", using default: 100");
             return 100;
+        }
+    }
+
+    /**
+     * Generic property getter that returns a boolean value
+     * @param key The property key
+     * @param defaultValue The default value to return if not found or invalid
+     * @return The property value as boolean or default
+     */
+    public static boolean getBooleanProperty(String key, boolean defaultValue) {
+        String value = getProperty(key, String.valueOf(defaultValue));
+        try {
+            return Boolean.parseBoolean(value);
+        } catch (Exception e) {
+            System.out.println("[ConfigReader] Invalid boolean value for " + key + ": " + value + ", using default: " + defaultValue);
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Generic property getter that returns an integer value
+     * @param key The property key
+     * @param defaultValue The default value to return if not found or invalid
+     * @return The property value as integer or default
+     */
+    public static int getIntProperty(String key, int defaultValue) {
+        String value = getProperty(key, String.valueOf(defaultValue));
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            System.out.println("[ConfigReader] Invalid integer value for " + key + ": " + value + ", using default: " + defaultValue);
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Generic property getter that returns a long value
+     * @param key The property key
+     * @param defaultValue The default value to return if not found or invalid
+     * @return The property value as long or default
+     */
+    public static long getLongProperty(String key, long defaultValue) {
+        String value = getProperty(key, String.valueOf(defaultValue));
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            System.out.println("[ConfigReader] Invalid long value for " + key + ": " + value + ", using default: " + defaultValue);
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Generic property getter that returns a double value
+     * @param key The property key
+     * @param defaultValue The default value to return if not found or invalid
+     * @return The property value as double or default
+     */
+    public static double getDoubleProperty(String key, double defaultValue) {
+        String value = getProperty(key, String.valueOf(defaultValue));
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            System.out.println("[ConfigReader] Invalid double value for " + key + ": " + value + ", using default: " + defaultValue);
+            return defaultValue;
         }
     }
 }

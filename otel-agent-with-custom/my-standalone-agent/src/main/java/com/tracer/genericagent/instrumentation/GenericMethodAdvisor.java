@@ -19,7 +19,9 @@ import static net.bytebuddy.matcher.ElementMatchers.*;
 /**
  * Installs ByteBuddy instrumentation using MethodDelegation instead of Advice.
  * This approach is more compatible with restrictive environments.
+ *
  */
+@Deprecated
 public class GenericMethodAdvisor {
 
     public static void install(

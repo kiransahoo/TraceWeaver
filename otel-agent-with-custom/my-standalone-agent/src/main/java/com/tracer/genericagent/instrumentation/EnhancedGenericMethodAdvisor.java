@@ -64,6 +64,11 @@ public class EnhancedGenericMethodAdvisor {
             "org.springframework.aop",
             "org.springframework.boot",
             "org.springframework.util",
+            "com.azure",
+            "com.azure.",
+            "com.microsoft.azure.",
+            "com.microsoft",
+            "com.microsoft.",
 
             // Application-specific logging packages
             "com.geico.claims.common.integration.utility.logging"
@@ -162,7 +167,7 @@ public class EnhancedGenericMethodAdvisor {
                         }
 
                         // Log the class we're instrumenting
-                        System.out.println("[EnhancedAdvisor] Instrumenting: " + className);
+                      //  System.out.println("[EnhancedAdvisor] Instrumenting: " + className);
 
                         // Build method matchers
                         ElementMatcher.Junction<MethodDescription> includeMatcher;
@@ -185,10 +190,43 @@ public class EnhancedGenericMethodAdvisor {
                         // Final method matcher with safety filters
                         ElementMatcher.Junction<MethodDescription> finalMatcher =
                                 includeMatcher.and(not(excludeMatcher))
-                                        .and(isPublic())
+                                        .and(isPublic().or(isPrivate()))
                                         .and(not(isConstructor()))
                                         .and(not(isAbstract()))
-                                        .and(not(isNative()));
+                                        .and(not(isNative()))
+
+                        // 1. Standard getters/setters
+                .and(not(nameStartsWith("get").and(takesNoArguments())))
+                                .and(not(nameStartsWith("set").and(takesArguments(1))))
+                                .and(not(nameStartsWith("is").and(takesNoArguments())))
+
+                                // 2. Object class standard methods - typically low value
+                                .and(not(named("equals").and(takesArguments(1))))
+                                .and(not(named("hashCode").and(takesNoArguments())))
+                                .and(not(named("toString").and(takesNoArguments())))
+
+                                // 3. Collection-related basic operations
+                                .and(not(named("size").and(takesNoArguments())))
+                                .and(not(named("isEmpty").and(takesNoArguments())))
+                                .and(not(named("contains").and(takesArguments(1))))
+                                .and(not(named("iterator").and(takesNoArguments())))
+                                .and(not(named("toArray").and(takesNoArguments().or(takesArguments(1)))))
+
+                                // 4. Common functional interface methods
+                                .and(not(named("apply").or(named("accept")).or(named("test")).or(named("get"))))
+                                .and(not(named("compare").and(takesArguments(2))))
+                                .and(not(named("compareTo").and(takesArguments(1))))
+
+                                // 5. Serialization/conversion methods
+                                .and(not(nameStartsWith("to").and(not(nameContains("_")))))
+                                .and(not(nameStartsWith("from").and(not(nameContains("_")))))
+                                .and(not(named("readObject").or(named("writeObject"))))
+                                .and(not(named("clone").and(takesNoArguments())))
+
+                                // 6. Utility and helper methods
+                                .and(not(nameContains("helper").or(nameContains("Helper"))))
+                                .and(not(nameContains("util").or(nameContains("Util"))))
+                                .and(not(nameContains("internal").or(nameContains("Internal"))));
 
                         try {
                             // Revert to the original approach without specifying ClassLoader

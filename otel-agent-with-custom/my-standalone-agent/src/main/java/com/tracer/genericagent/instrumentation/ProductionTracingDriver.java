@@ -26,6 +26,7 @@ import static net.bytebuddy.matcher.ElementMatchers.*;
  * High-performance tracing driver for production environments.
  * Optimized for minimal overhead and maximum compatibility.
  */
+@Deprecated
 public class ProductionTracingDriver {
 
     // Private constructor to prevent instantiation

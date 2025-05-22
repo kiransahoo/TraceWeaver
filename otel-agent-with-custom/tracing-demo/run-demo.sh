@@ -42,7 +42,7 @@ java -javaagent:"${OTEL_AGENT_PATH}/opentelemetry-javaagent.jar" \
      -javaagent:"${CUSTOM_AGENT_PATH}" \
      -Dotel.traces.exporter=otlp \
      -Dotel.exporter.otlp.protocol=grpc \
-     -Dotel.exporter.otlp.endpoint=http://localhost:4317 \
+     -Dotel.exporter.otlp.endpoint=http://localhost:4317/ \
      -Dotel.service.name=service2 \
      -Dagent.config.file="${CONFIG_FILE}" \
      -Dspring.main.banner-mode=off \
@@ -62,7 +62,7 @@ java -javaagent:"${OTEL_AGENT_PATH}/opentelemetry-javaagent.jar" \
      -javaagent:"${CUSTOM_AGENT_PATH}" \
      -Dotel.traces.exporter=otlp \
      -Dotel.exporter.otlp.protocol=grpc \
-     -Dotel.exporter.otlp.endpoint=http://localhost:4317 \
+     -Dotel.exporter.otlp.endpoint=http://localhost:4317/ \
      -Dotel.service.name=service1 \
      -Dagent.config.file="${CONFIG_FILE}" \
      -Dspring.main.banner-mode=off \
