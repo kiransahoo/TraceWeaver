@@ -1,218 +1,3 @@
-//package com.tracer.genericagent.instrumentation;
-//
-//import com.tracer.genericagent.util.ConfigReader;
-//import io.opentelemetry.api.GlobalOpenTelemetry;
-//import io.opentelemetry.api.trace.Span;
-//import io.opentelemetry.api.trace.SpanBuilder;
-//import io.opentelemetry.api.trace.SpanKind;
-//import io.opentelemetry.api.trace.StatusCode;
-//import io.opentelemetry.api.trace.Tracer;
-//import io.opentelemetry.context.Scope;
-//import io.opentelemetry.context.Context;
-//
-//import net.bytebuddy.asm.Advice;
-//
-//import java.util.ArrayDeque;
-//import java.util.Deque;
-//import java.util.UUID;
-//
-///**
-// * A simplified version of the original GenericMethodAdvice with improved
-// * parent-child relationship tracking.
-// */
-//public class SimplifiedGenericMethodAdvice {
-//
-//    // Static initialization block to verify class loading
-//    static {
-//        System.out.println("[DEBUG] *** SimplifiedGenericMethodAdvice class loaded ***");
-//    }
-//
-//    // ============= PUBLIC STATIC FIELDS FOR MODULE ACCESS =============
-//    // These must be public static at the top level to avoid module access issues
-//
-//    // Using stack-based approach for proper parent-child relationship
-//    public static final ThreadLocal<Deque<SpanInfo>> ACTIVE_SPANS_STACK = ThreadLocal.withInitial(ArrayDeque::new);
-//
-//    // Static configuration values with defaults - must be public
-//    public static final String SERVICE_NAME = ConfigReader.getProperty("service.name", "MyOrgApplication");
-//    public static final String SERVICE_NAMESPACE = ConfigReader.getProperty("service.namespace", "com.myorg.app");
-//    public static final String ENVIRONMENT = ConfigReader.getProperty("environment", "production");
-//
-//    public static final String INSTANCE_ID = UUID.randomUUID().toString().substring(0, 8);
-//    public static final String APP_VERSION = "1.0.0";
-//
-//    /**
-//     * Get the tracer from the current GlobalOpenTelemetry instance.
-//     * This ensures compatibility with other agents that might have set up OpenTelemetry.
-//     * MUST BE PUBLIC STATIC for accessibility from instrumented classes.
-//     */
-//    public static Tracer getTracer() {
-//        try {
-//            return GlobalOpenTelemetry.get().getTracer("generic-agent-tracer", "1.0.0");
-//        } catch (Exception e) {
-//            System.err.println("[GenericMethodAdvice] Error getting global tracer: " + e.getMessage());
-//            // Create a fallback no-op tracer
-//            return GlobalOpenTelemetry.getTracerProvider().get("generic-agent-fallback");
-//        }
-//    }
-//
-//    /**
-//     * Public static class to hold span information.
-//     */
-//    public static class SpanInfo {
-//        public final Span span;
-//        public final Scope scope;
-//        public final long startTimeMs;
-//
-//        public SpanInfo(Span span, Scope scope) {
-//            this.span = span;
-//            this.scope = scope;
-//            this.startTimeMs = System.currentTimeMillis();
-//        }
-//    }
-//
-//    @Advice.OnMethodEnter(suppress = Throwable.class)
-//    public static void onEnter(@Advice.Origin("#t.#m") String methodName) {
-//        try {
-//
-//
-//            // Split method name into class and method parts
-//            String className = methodName.substring(0, methodName.lastIndexOf('.'));
-//            String methodNameOnly = methodName.substring(methodName.lastIndexOf('.') + 1);
-//
-//            // Generate operation IDs for Azure correlation
-//          //  String operationId = UUID.randomUUID().toString();
-//
-//            // Get the tracer dynamically
-//            Tracer tracer = getTracer();
-//
-//            // Important: Get the current context - this might contain a span from the OTel agent
-//            Context currentContext = Context.current();
-//            Span parentSpan = Span.fromContext(currentContext);
-//
-//            // Create builder with proper parent context
-//            SpanBuilder spanBuilder = tracer.spanBuilder(methodName)
-//                    .setSpanKind(SpanKind.INTERNAL).setParent(currentContext);
-//
-//            String operationId;
-//            String parentId = "";
-//
-//            if (parentSpan != null && parentSpan.getSpanContext().isValid() &&
-//                    !parentSpan.getSpanContext().getTraceId().equals("00000000000000000000000000000000")) {
-//                // Use the existing trace ID for correlation with App Insights
-//                operationId = parentSpan.getSpanContext().getTraceId();
-//                parentId = parentSpan.getSpanContext().getSpanId();
-//            } else {
-//                // Only generate new if no parent exists
-//                operationId = UUID.randomUUID().toString();
-//            }
-//
-//
-//
-//            Span span = spanBuilder
-//                    // Essential Azure Application Insights attributes
-//                    //.setAttribute("ai.operation.id", operationId)
-//                    .setAttribute("ai.operation.name", methodName)
-//                    .setAttribute("ai.cloud.role", SERVICE_NAME)
-//                    .setAttribute("ai.operation.parentId", parentId)
-//
-//                    // Essential service identification (keep only one set)
-//                    .setAttribute("service.name", SERVICE_NAME)
-//
-//                    // Method identification (essential for debugging)
-//                    .setAttribute("code.namespace", className)
-//                    .setAttribute("code.function", methodNameOnly)
-//
-//                    // Add traceId explicitly as an attribute for easy filtering
-//
-//                    .startSpan();
-//
-//           span .setAttribute("trace.id", span.getSpanContext().getTraceId());
-//            span.setAttribute("ai.operation.id", span.getSpanContext().getTraceId());
-//            // Make the new span current
-//            Scope scope = span.makeCurrent();
-//
-//            // Push to stack for parent-child tracking
-//            ACTIVE_SPANS_STACK.get().push(new SpanInfo(span, scope));
-//
-//            // Log the method entry
-////            System.out.println("[GenericMethodAdvice] ENTER: " + methodName +
-////                    " --> traceId=" + span.getSpanContext().getTraceId() +
-////                    ", spanId=" + span.getSpanContext().getSpanId() +
-////                    ", operationId=" + operationId);
-//
-//        } catch (Throwable t) {
-//            // Log error but catch all exceptions to prevent app impact
-////            System.out.println("[GenericMethodAdvice] Error on method entry: " + t.getMessage());
-////            t.printStackTrace();
-//        }
-//    }
-//
-//
-//    /**
-//     * Method exit advice with enhanced error handling.
-//     */
-//    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
-//    public static void onExit(
-//            @Advice.Origin("#t.#m") String methodName,
-//            @Advice.Thrown Throwable thrown) {
-//        try {
-//           // System.out.println("[DEBUG] EXIT intercepted: " + methodName);
-//
-//            // Get and remove the current span from stack
-//            Deque<SpanInfo> stack = ACTIVE_SPANS_STACK.get();
-//            if (stack.isEmpty()) {
-//              //  System.out.println("[DEBUG] No active span found for method: " + methodName);
-//                return;
-//            }
-//
-//            SpanInfo info = stack.pop();
-//            Span span = info.span;
-//            Scope scope = info.scope;
-//
-//            try {
-//                // Record exception if any
-//                if (thrown != null) {
-//                    span.setStatus(StatusCode.ERROR, thrown.getMessage() != null ?
-//                            thrown.getMessage() : thrown.getClass().getSimpleName());
-//                    span.recordException(thrown);
-//                    span.setAttribute("error", true);
-//                    span.setAttribute("error.type", thrown.getClass().getName());
-//                    span.setAttribute("error.message", thrown.getMessage() != null ?
-//                            thrown.getMessage() : thrown.getClass().getSimpleName());
-//                    span.setAttribute("ai.operation.isSuccessful", false);
-//                } else {
-//                    span.setStatus(StatusCode.OK);
-//                    span.setAttribute("ai.operation.isSuccessful", true);
-//                }
-//
-//                // Add duration info (in milliseconds)
-//                long durationMs = System.currentTimeMillis() - info.startTimeMs;
-//                span.setAttribute("duration_ms", durationMs);
-//
-//                // Log the method exit
-////                System.out.println("[GenericMethodAdvice] EXIT: " + methodName +
-////                        " --> traceId=" + span.getSpanContext().getTraceId() +
-////                        ", spanId=" + span.getSpanContext().getSpanId() +
-////                        ", duration=" + durationMs + "ms");
-//            } finally {
-//                // Always clean up the current span
-//                span.end();
-//                scope.close();
-//
-//                // Clean up ThreadLocal if stack is empty
-//                if (stack.isEmpty()) {
-//                    ACTIVE_SPANS_STACK.remove();
-//                }
-//            }
-//        } catch (Throwable t) {
-//            // Log error but catch all exceptions
-////            System.out.println("[GenericMethodAdvice] Error on method exit: " + t.getMessage());
-////            t.printStackTrace();
-//        }
-//    }
-//}
-
 package com.tracer.genericagent.instrumentation;
 
 import com.tracer.genericagent.util.ConfigReader;
@@ -236,12 +21,12 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * A simplified version of the original GenericMethodAdvice with improved
+ * A simplified version with improved
  * parent-child relationship tracking and configurable error handling.
  */
 public class SimplifiedGenericMethodAdvice {
 
-    // ============= CONFIGURATION FLAGS WITH DEFAULTS =============
+
 
     // Error capture configuration - defaults if properties not found
     public static final boolean ERROR_CAPTURE_ENABLED =
@@ -279,7 +64,7 @@ public class SimplifiedGenericMethodAdvice {
         Thread cleanupThread = new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
-                    Thread.sleep(300000); // 5 minutes
+                    Thread.sleep(180000); // 3 minutes
                     cleanupOrphanedThreadLocals();
                     cleanupRateLimiters();
                 } catch (InterruptedException e) {
@@ -315,11 +100,7 @@ public class SimplifiedGenericMethodAdvice {
         return new HashSet<>(Arrays.asList(ignoredExceptionsStr.split(",")));
     }
 
-    /**
-     * Get the tracer from the current GlobalOpenTelemetry instance.
-     * This ensures compatibility with other agents that might have set up OpenTelemetry.
-     * MUST BE PUBLIC STATIC for accessibility from instrumented classes.
-     */
+
     /**
      * Get the tracer from the current GlobalOpenTelemetry instance.
      * This ensures compatibility with other agents that might have set up OpenTelemetry.
@@ -428,6 +209,12 @@ public class SimplifiedGenericMethodAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void onEnter(@Advice.Origin("#t.#m") String methodName) {
         try {
+
+            Deque<SpanInfo> stack = ACTIVE_SPANS_STACK.get();
+            if (stack != null && stack.size() > 150) {
+                return; // Skip instrumentation if too deep
+            }
+
             // Split method name into class and method parts
             String className = methodName.substring(0, methodName.lastIndexOf('.'));
             String methodNameOnly = methodName.substring(methodName.lastIndexOf('.') + 1);
@@ -615,6 +402,18 @@ public class SimplifiedGenericMethodAdvice {
                 ACTIVE_SPANS_STACK.remove();
             } catch (Exception cleanup) {
                 // Ignore cleanup errors
+            }
+        }
+        finally {
+
+            // Ensures ThreadLocal is always cleaned up
+            try {
+                Deque<SpanInfo> tvstack = ACTIVE_SPANS_STACK.get();
+                if (tvstack == null || tvstack.isEmpty()) {
+                    ACTIVE_SPANS_STACK.remove(); // Prevent memory leak
+                }
+            } catch (Exception e) {
+                // Ignore any errors in finally
             }
         }
     }
